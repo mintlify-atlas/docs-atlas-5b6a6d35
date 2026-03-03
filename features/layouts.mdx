@@ -1,0 +1,375 @@
+---
+title: Layout Components
+description: Creating and nesting layout components with TanStack Router
+---
+
+## Overview
+
+Layouts define the visual structure shared by multiple pages in a feature. They wrap child routes using the `<Outlet />` component from TanStack Router.
+
+<Tip>
+  Layouts are rendered **once** when you navigate into a feature, and only the inner `<Outlet />` content changes as you navigate between child pages.
+</Tip>
+
+## Basic Layout Structure
+
+Every layout component follows this pattern:
+
+```tsx
+import { Outlet } from '@tanstack/react-router'
+
+export const MyLayout = () => {
+  return (
+    <>
+      {/* Layout-specific UI: navigation, header, sidebar, etc. */}
+      <nav>
+        {/* Navigation items */}
+      </nav>
+      
+      {/* Child routes render here */}
+      <Outlet />
+    </>
+  )
+}
+```
+
+The `<Outlet />` is where child route components will be rendered.
+
+## Layout Examples
+
+### Landing Layout (Public Pages)
+
+The landing feature has a simple navigation bar for public pages:
+
+```tsx
+import { Link, Outlet, useRouterState } from '@tanstack/react-router'
+
+export const LandingLayout = () => {
+  const { status } = useRouterState()
+
+  return (
+    <>
+      <nav>
+        <ul>
+          <li>
+            <Link to="/home" activeProps={{ style: { fontWeight: 'bold' } }}>
+              Home
+            </Link>
+          </li>
+          <li>
+            <Link to="/auth" activeProps={{ style: { fontWeight: 'bold' } }}>
+              Auth
+            </Link>
+          </li>
+          <li>
+            <Link to="/product/$id" params={{ id: '1' }} activeProps={{ style: { fontWeight: 'bold' } }}>
+              Product
+            </Link>
+          </li>
+          <li>
+            <Link to="/contact" activeProps={{ style: { fontWeight: 'bold' } }}>
+              Contact
+            </Link>
+          </li>
+          <li>
+            <Link to="/about" activeProps={{ style: { fontWeight: 'bold' } }}>
+              About
+            </Link>
+          </li>
+        </ul>
+      </nav>
+      {status === 'pending' && <div>Loading…</div>}
+      <Outlet />
+    </>
+  )
+}
+```
+
+Source: `~/workspace/source/src/features/landing/layout/layout.tsx:8`
+
+**Key features:**
+- Uses `Link` with `activeProps` for active route styling
+- Shows loading indicator with `useRouterState().status`
+- No authentication logic (public feature)
+
+### Auth Layout (Minimal)
+
+The auth layout is intentionally minimal since login/register pages should be distraction-free:
+
+```tsx
+import { Outlet } from '@tanstack/react-router'
+
+export const AuthLayout = () => {
+  return (
+    <>
+      <div>AuthLayout</div>
+      <Outlet />
+    </>
+  )
+}
+
+export default AuthLayout
+```
+
+Source: `~/workspace/source/src/features/auth/layout/authLayout.tsx:3`
+
+### Backoffice Layout (Protected Area)
+
+The backoffice layout includes navigation and a logout button:
+
+```tsx
+import { Link, Outlet, useNavigate } from '@tanstack/react-router'
+import { useStorage } from '../../../shared/hooks/useStorage'
+
+export const BackofficeLayout = () => {
+  const navigate = useNavigate()
+  const { removeAllStorage } = useStorage()
+
+  const logout = () => {
+    removeAllStorage()
+    navigate({ to: '/login' })
+  }
+
+  return (
+    <>
+      <div>BackofficeLayout</div>
+      <nav>
+        <ul>
+          <li>
+            <Link to="/backoffice/dashboard" activeProps={{ style: { fontWeight: 'bold' } }}>
+              Dashboard
+            </Link>
+          </li>
+          <li>
+            <Link to="/backoffice/admin/users" activeProps={{ style: { fontWeight: 'bold' } }}>
+              Users
+            </Link>
+          </li>
+          <li>
+            <Link to="/backoffice/admin/roles" activeProps={{ style: { fontWeight: 'bold' } }}>
+              Roles
+            </Link>
+          </li>
+          <li>
+            <Link to="/backoffice/admin/permissions" activeProps={{ style: { fontWeight: 'bold' } }}>
+              Permissions
+            </Link>
+          </li>
+          <li>
+            <button onClick={logout}>Logout</button>
+          </li>
+        </ul>
+      </nav>
+      <Outlet />
+    </>
+  )
+}
+```
+
+Source: `~/workspace/source/src/features/backoffice/layout/backofficeLayout.tsx:4`
+
+**Key features:**
+- Logout functionality clearing storage and redirecting
+- Navigation to protected routes
+- Links to nested admin sub-routes
+
+## Nested Layouts
+
+Layouts can be nested to create hierarchical structures. The backoffice feature demonstrates this:
+
+```
+/backoffice                    ← BackofficeLayout
+  /dashboard                   ← Dashboard page
+  /admin                       ← AdminLayout (nested)
+    /users                     ← Admin Users page
+    /roles                     ← Admin Roles page
+    /permissions               ← Admin Permissions page
+```
+
+Each level can have its own layout with its own `<Outlet />`:
+
+<CodeGroup>
+```tsx features/backoffice/router/router.tsx
+export const backofficeRouter = (parentRoute: AnyRoute) => {
+  // Parent layout
+  const backofficeLayoutRoute = createRoute({
+    getParentRoute: () => parentRoute,
+    path: ROUTES.backoffice.backoffice.path,
+    component: BackofficeLayout,
+    beforeLoad: backofficeGuard,
+  })
+
+  // Child routes including nested admin router
+  return backofficeLayoutRoute.addChildren([
+    dashboardIndexRoute,
+    ...childRoutes,
+    adminRouter(backofficeLayoutRoute), // Nested layout
+  ])
+}
+```
+
+```tsx features/backoffice/admin/router/router.tsx
+export const adminRouter = (parentRoute: AnyRoute) => {
+  // Nested admin layout
+  const adminLayoutRoute = createRoute({
+    getParentRoute: () => parentRoute,
+    path: 'admin',
+    component: AdminLayout, // Another layout with its own <Outlet />
+  })
+
+  return adminLayoutRoute.addChildren(adminChildRoutes)
+}
+```
+</CodeGroup>
+
+Source: `~/workspace/source/src/features/backoffice/router/router.tsx:15`
+
+<Warning>
+  When nesting layouts, make sure each parent layout renders `<Outlet />` or child routes won't display.
+</Warning>
+
+## Registering Layouts in Routes
+
+Layouts are registered when creating the layout route:
+
+```tsx
+import { createRoute } from '@tanstack/react-router'
+import { MyLayout } from '../layout/myLayout'
+import type { AnyRoute } from '@tanstack/react-router'
+
+export const myFeatureRouter = (parentRoute: AnyRoute) => {
+  const layoutRoute = createRoute({
+    getParentRoute: () => parentRoute,
+    id: 'myfeature', // Optional: named routes
+    component: MyLayout, // Layout component
+    errorComponent: Error404,
+  })
+
+  // Child routes will render inside MyLayout's <Outlet />
+  const childRoutes = routes.map((route) => 
+    createRoute({
+      getParentRoute: () => layoutRoute,
+      path: route.path,
+      component: route.component,
+    })
+  )
+
+  return layoutRoute.addChildren(childRoutes)
+}
+```
+
+## Layout-Level Route Protection
+
+You can apply guards at the layout level to protect all child routes:
+
+```tsx
+const authLayoutRoute = createRoute({
+  getParentRoute: () => parentRoute,
+  id: 'auth',
+  component: AuthLayout,
+  beforeLoad: authGuard, // All child routes protected
+  errorComponent: Error404,
+})
+```
+
+Source: `~/workspace/source/src/features/auth/router/router.tsx:14`
+
+All pages under this layout will execute `authGuard` before rendering. Learn more in [Route Guards](/features/guards).
+
+## Layout Loading States
+
+Use `useRouterState()` to show loading indicators during navigation:
+
+```tsx
+import { Outlet, useRouterState } from '@tanstack/react-router'
+
+export const MyLayout = () => {
+  const { status } = useRouterState()
+
+  return (
+    <>
+      <nav>{/* ... */}</nav>
+      
+      {status === 'pending' && (
+        <div className="loading-bar">Loading...</div>
+      )}
+      
+      <Outlet />
+    </>
+  )
+}
+```
+
+## Common Layout Patterns
+
+### Sidebar + Content
+
+```tsx
+export const DashboardLayout = () => {
+  return (
+    <div className="dashboard">
+      <aside className="sidebar">
+        <nav>{/* Sidebar navigation */}</nav>
+      </aside>
+      <main className="content">
+        <Outlet />
+      </main>
+    </div>
+  )
+}
+```
+
+### Header + Footer
+
+```tsx
+export const PublicLayout = () => {
+  return (
+    <>
+      <header>
+        <nav>{/* Main navigation */}</nav>
+      </header>
+      
+      <main>
+        <Outlet />
+      </main>
+      
+      <footer>
+        <p>© 2024 My Company</p>
+      </footer>
+    </>
+  )
+}
+```
+
+### Conditional Layout Elements
+
+```tsx
+import { useMatchRoute } from '@tanstack/react-router'
+
+export const MyLayout = () => {
+  const matchRoute = useMatchRoute()
+  const isDashboard = matchRoute({ to: '/dashboard' })
+
+  return (
+    <>
+      {isDashboard && <DashboardHeader />}
+      <nav>{/* ... */}</nav>
+      <Outlet />
+    </>
+  )
+}
+```
+
+## Best Practices
+
+1. **Keep layouts focused**: Only include UI that's shared across multiple child routes
+2. **Don't fetch data in layouts**: Use page-level loaders or hooks instead
+3. **Use semantic HTML**: `<header>`, `<nav>`, `<main>`, `<aside>`, `<footer>`
+4. **Export as default or named**: Both work, but be consistent within your project
+5. **Avoid deep nesting**: 2-3 levels of layouts is usually enough
+
+## Next Steps
+
+- Learn about [Route Guards](/features/guards) for protecting layouts
+- See [Feature Modules](/features/feature-modules) for the complete feature structure
+- Understand [Error Handling](/features/error-handling) for layout-level error boundaries

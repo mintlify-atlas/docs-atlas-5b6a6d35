@@ -1,0 +1,165 @@
+---
+title: Introduction
+description: A modern React 19.2 SPA boilerplate with TanStack Router - production-ready architecture for scalable applications
+---
+
+# Welcome to base-react-v2
+
+A production-ready React boilerplate built with modern tooling and a scalable architecture. Get your next SPA up and running in minutes with best practices baked in.
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get up and running in under 5 minutes with bun or npm
+  </Card>
+  <Card title="Installation Guide" icon="download" href="/installation">
+    Detailed setup instructions and environment configuration
+  </Card>
+  <Card title="Architecture Guide" icon="sitemap" href="/architecture/overview">
+    Understand the layered architecture and design patterns
+  </Card>
+  <Card title="Features Guide" icon="book" href="/features/feature-modules">
+    Explore routing, state management, and more
+  </Card>
+</CardGroup>
+
+## What's Inside
+
+This boilerplate provides a solid foundation for building scalable React applications with enterprise-grade architecture.
+
+### Core Technologies
+
+<CardGroup cols={2}>
+  <Card title="React 19.2" icon="react">
+    Latest React with concurrent features and automatic batching
+  </Card>
+  <Card title="TanStack Router 1.161" icon="route">
+    Type-safe routing with built-in data loading and code splitting
+  </Card>
+  <Card title="TypeScript 5.9" icon="code">
+    Full type safety across your entire application
+  </Card>
+  <Card title="Vite 7.3" icon="bolt">
+    Lightning-fast HMR and optimized production builds
+  </Card>
+</CardGroup>
+
+### Key Features
+
+#### Layered Architecture
+
+Clean separation of concerns with a modular feature-based structure:
+
+- **Core Layer**: Infrastructure and base configuration
+- **Shared Layer**: Reusable components, hooks, and utilities
+- **Features Layer**: Self-contained business logic modules
+
+<Tip>
+Each feature is completely independent with its own domain, infrastructure, and presentation layers. This makes your codebase highly maintainable and testable.
+</Tip>
+
+#### Feature-Based Organization
+
+Organize code by business domain, not by technical role:
+
+```bash
+features/
+├── auth/          # Authentication flows
+├── landing/       # Public pages
+├── backoffice/    # Admin dashboard
+└── error404/      # Error handling
+```
+
+#### Built-in Best Practices
+
+- **Singleton HTTP Client**: Centralized API configuration with interceptors
+- **Adapter Pattern**: Clean API response transformation
+- **Builder Pattern**: Composable router configuration
+- **Route Guards**: Protect routes with reusable guard functions
+- **Type-Safe Routing**: Full TypeScript support for routes and params
+
+<Note>
+The architecture follows SOLID principles and emphasizes dependency inversion - layers always depend inward toward the domain, never outward.
+</Note>
+
+### Bun Support
+
+While this boilerplate works with npm, yarn, and pnpm, it's optimized for [Bun](https://bun.sh) - the all-in-one JavaScript runtime that's significantly faster than Node.js:
+
+```bash
+bun install    # ~3x faster than npm install
+bun run dev    # Instant dev server startup
+bun run build  # Optimized production builds
+```
+
+## Project Structure
+
+The boilerplate follows a clean architecture with three main layers:
+
+```bash
+src/
+├── core/                    # Infrastructure base
+│   ├── providers/           # Global providers (QueryClient, Theme)
+│   └── router/              # TanStack Router singleton
+│
+├── shared/                  # Reusable across features
+│   ├── components/ui/       # Generic UI components
+│   ├── constants/           # Global constants and routes
+│   ├── guard/               # Route guards
+│   ├── hooks/               # Shared hooks
+│   └── utils/               # Pure utility functions
+│
+└── features/                # Business logic modules
+    ├── auth/
+    ├── landing/
+    ├── backoffice/
+    └── error404/
+```
+
+<Tip>
+Features never import from other features. All shared code lives in `shared/`. This prevents tight coupling and makes code easier to maintain.
+</Tip>
+
+## Feature Anatomy
+
+Each feature follows a clean architecture pattern with clear separation:
+
+```bash
+features/example/
+├── domain/              # Types and interfaces
+├── infrastructure/      # API, cache, and state
+│   ├── api/            # HTTP calls
+│   ├── stacks/         # TanStack Query cache
+│   └── store/          # Global state (Zustand)
+├── application/         # Service orchestration
+├── layout/              # Feature-specific layouts
+├── pages/               # Route components
+└── router/              # Route definitions
+```
+
+## Router Architecture
+
+TanStack Router provides type-safe, file-based routing with powerful features:
+
+- **Type-Safe Navigation**: Full TypeScript support for routes and params
+- **Data Loaders**: Pre-fetch data before rendering routes
+- **Route Guards**: Protect routes with authentication checks
+- **Code Splitting**: Automatic lazy loading of route components
+- **Devtools**: Built-in devtools for debugging routing
+
+<Note>
+The router is configured as a singleton in `core/router/tankStackRouter.tsx`. Each feature exposes a factory function that builds its route subtree, keeping features isolated.
+</Note>
+
+## Next Steps
+
+Ready to get started? Follow the quick start guide:
+
+<Card title="Quick Start" icon="rocket" href="/quickstart">
+  Install dependencies and run your first dev server in 5 minutes
+</Card>
+
+Or dive into the detailed installation guide:
+
+<Card title="Installation" icon="download" href="/installation">
+  Learn about environment variables, build configuration, and deployment
+</Card>

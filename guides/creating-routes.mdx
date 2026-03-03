@@ -1,0 +1,347 @@
+---
+title: Creating Routes
+description: Learn how to create and configure new routes in your React + TanStack Router application
+---
+
+# Creating Routes
+
+This guide walks you through creating new routes using TanStack Router with the factory function pattern used in this boilerplate.
+
+## Route Architecture Overview
+
+The boilerplate uses a **modular routing architecture** where each feature owns its routes:
+
+- **Route Constants** (`~/shared/constants/routes.ts`) - Centralized route definitions
+- **Route Configuration** (`features/<feature>/router/routes.ts`) - Route metadata and components
+- **Route Factory** (`features/<feature>/router/router.tsx`) - Builder function that creates route tree
+- **Metadata** (`features/<feature>/router/metadata.ts`) - Page titles and meta information
+
+<Tip>
+The factory pattern (Builder) allows features to be completely independent. Each feature exports a function that receives the parent route and returns its complete route subtree.
+</Tip>
+
+## Step-by-Step: Adding a New Route
+
+<Steps>
+
+### Define the route constant
+
+Add your route to the appropriate section in `~/shared/constants/routes.ts`:
+
+```ts ~/shared/constants/routes.ts
+const LANDING_ROUTES = {
+  home: {
+    path: '/home',
+    fullPath: '/home',
+    name: 'Home',
+  },
+  product: {
+    path: '/product/$id',
+    fullPath: '/product/$id',
+    name: 'Product',
+    to: (id: string) => `/product/${id}`,
+  },
+  // Add your new route
+  blog: {
+    path: '/blog',
+    fullPath: '/blog',
+    name: 'Blog',
+  },
+} as const satisfies Record<string, AppRoute>
+```
+
+<Note>
+**For dynamic routes**: Add a `to` function that accepts parameters and returns the full path. See the `product` route example above.
+</Note>
+
+### Add metadata
+
+Define page metadata in `features/<feature>/router/metadata.ts`:
+
+```ts features/landing/router/metadata.ts
+export const landingMetaData = () => {
+  const metaData = {
+    index: {
+      title: 'Home',
+    },
+    product: {
+      title: 'Product',
+    },
+    // Add your metadata
+    blog: {
+      title: 'Blog - Our Latest Posts',
+    },
+  }
+  return metaData
+}
+```
+
+### Create the page component
+
+Create your page component in `features/<feature>/<page>/<page>.tsx`:
+
+```tsx features/landing/blog/blog.tsx
+import type { FC } from 'react'
+
+interface BlogProps {
+  metaData: { title: string }
+}
+
+export const Blog: FC<BlogProps> = ({ metaData }) => {
+  return (
+    <div>
+      <h1>{metaData.title}</h1>
+      {/* Your page content */}
+    </div>
+  )
+}
+```
+
+### Register the route
+
+Add the route configuration to `features/<feature>/router/routes.ts`:
+
+```ts features/landing/router/routes.ts
+import { lazy } from 'react'
+import { landingMetaData } from './metadata'
+import { ROUTES } from '../../../shared/constants/routes'
+import { Home } from '../home/home'
+
+const Product = lazy(() => import('../product/product').then(m => ({ default: m.Product })))
+const Blog = lazy(() => import('../blog/blog').then(m => ({ default: m.Blog })))
+
+const { landing } = ROUTES
+const { index, product, blog } = landingMetaData()
+
+export const routes = [
+  {
+    path: landing.home.path,
+    component: Home,
+    metaData: index,
+  },
+  {
+    path: landing.product.path,
+    component: Product,
+    metaData: product,
+  },
+  // Add your new route
+  {
+    path: landing.blog.path,
+    component: Blog,
+    metaData: blog,
+  },
+] as const
+```
+
+<Tip>
+Use `lazy()` imports for code splitting. Only the Home component is imported directly as the entry point.
+</Tip>
+
+</Steps>
+
+## Advanced: Adding Route Loaders
+
+For data fetching before render, add a loader:
+
+<Steps>
+
+### Create the loader
+
+```ts features/landing/loaders/blogLoader.ts
+export const blogLoader = async () => {
+  // Fetch data before the page renders
+  const response = await fetch('/api/blog-posts')
+  const posts = await response.json()
+  
+  return { posts }
+}
+```
+
+### Register the loader
+
+```ts features/landing/router/routes.ts
+import { blogLoader } from '../loaders/blogLoader'
+
+export const routes = [
+  {
+    path: landing.blog.path,
+    component: Blog,
+    loader: blogLoader, // Add the loader
+    metaData: blog,
+  },
+]
+```
+
+### Access loader data in component
+
+```tsx features/landing/blog/blog.tsx
+import { useLoaderData } from '@tanstack/react-router'
+
+export const Blog = () => {
+  const { posts } = useLoaderData({ from: '/blog' })
+  
+  return (
+    <div>
+      {posts.map(post => (
+        <article key={post.id}>{post.title}</article>
+      ))}
+    </div>
+  )
+}
+```
+
+</Steps>
+
+<Warning>
+Loaders throw errors that can be caught by `errorComponent`. For example, throwing a 404 Response in the loader will trigger the error boundary:
+
+```ts
+if (!product) {
+  throw new Response('Not Found', { status: 404, statusText: 'Not Found' })
+}
+```
+</Warning>
+
+## Adding Route Guards
+
+Protect routes with `beforeLoad` guards defined in your feature router:
+
+```tsx features/backoffice/router/router.tsx
+import { backofficeGuard } from '../../../shared/guard/backofficeGuard'
+
+const backofficeLayoutRoute = createRoute({
+  getParentRoute: () => parentRoute,
+  path: ROUTES.backoffice.backoffice.path,
+  component: BackofficeLayout,
+  beforeLoad: backofficeGuard, // Guard applied to all children
+  errorComponent: Error404,
+})
+```
+
+**Example guard implementation**:
+
+```ts shared/guard/backofficeGuard.ts
+import { redirect } from '@tanstack/react-router'
+import { checkAuthenticated } from '../hooks/useCheckAuthenticated'
+import { ROUTES } from '../constants/routes'
+
+export const backofficeGuard = () => {
+  const isAuth = checkAuthenticated()
+  
+  if (!isAuth) {
+    throw redirect({ to: ROUTES.auth.login.fullPath })
+  }
+}
+```
+
+## Nested Routes
+
+For nested route structures (like `/backoffice/admin/users`), use relative paths:
+
+```ts shared/constants/routes.ts
+const ADMIN_ROUTES = {
+  root: {
+    path: 'admin',              // Relative to /backoffice
+    fullPath: '/backoffice/admin',
+    name: 'Admin',
+  },
+  users: {
+    path: 'users',              // Relative to /backoffice/admin
+    fullPath: '/backoffice/admin/users',
+    name: 'Admin Users',
+  },
+}
+```
+
+Then nest the router factory:
+
+```tsx features/backoffice/router/router.tsx
+import { adminRouter } from '../admin/router/router'
+
+return backofficeLayoutRoute.addChildren([
+  ...childRoutes,
+  adminRouter(backofficeLayoutRoute), // Nested feature
+])
+```
+
+## Factory Function Pattern
+
+Each feature exports a factory function that builds its route tree:
+
+```tsx features/landing/router/router.tsx
+export const landingRouter = (parentRoute: AnyRoute) => {
+  // 1. Create layout route
+  const landingLayoutRoute = createRoute({
+    getParentRoute: () => parentRoute,
+    id: 'landing',
+    component: LandingLayout,
+    errorComponent: Error404,
+  })
+
+  // 2. Map route configurations to TanStack routes
+  const childRoutes = routes.map((route) => {
+    const { path, metaData } = route
+    const Component = route.component as React.ComponentType<any>
+    const loader = 'loader' in route ? route.loader : undefined
+
+    return createRoute({
+      getParentRoute: () => landingLayoutRoute,
+      path: path,
+      component: () => (
+        <Suspense fallback={<div>Loading…</div>}>
+          <Component metaData={metaData} />
+        </Suspense>
+      ),
+      ...(loader ? { loader } : {}),
+      errorComponent: Error404,
+    })
+  })
+
+  // 3. Return composed tree
+  return landingLayoutRoute.addChildren(childRoutes)
+}
+```
+
+<Tip>
+This pattern keeps features completely independent. The main router in `core/router/tankStackRouter.tsx` simply composes all feature routers without knowing their internal structure.
+</Tip>
+
+## Navigation Between Routes
+
+Use the centralized route constants for type-safe navigation:
+
+```tsx
+import { useNavigate, Link } from '@tanstack/react-router'
+import { ROUTES } from '~/shared/constants/routes'
+
+// Programmatic navigation
+const navigate = useNavigate()
+navigate({ to: ROUTES.landing.home.fullPath })
+
+// With parameters
+navigate({ to: ROUTES.landing.product.to('abc-123') })
+
+// Link components
+<Link to={ROUTES.landing.contact.path}>Contact</Link>
+<Link to={ROUTES.landing.product.to(product.id)}>View Product</Link>
+```
+
+## Best Practices
+
+<Tip>
+- **Use lazy imports** for all routes except critical entry points
+- **Define routes in constants** for type safety and refactoring
+- **Keep route logic in the feature** - don't leak route details to other features
+- **Use loaders for data fetching** when you need data before render
+- **Apply guards at layout level** to protect all child routes
+</Tip>
+
+<Warning>
+**Never import routes from one feature to another.** If you need to navigate to another feature's route, use the centralized `ROUTES` constant from `~/shared/constants/routes.ts`.
+</Warning>
+
+## Next Steps
+
+- Learn about [State Management](/guides/state-management) for handling data in routes
+- Explore [Data Fetching](/guides/data-fetching) patterns with loaders and queries
+- Understand [Adding Features](/guides/adding-features) to create new feature modules

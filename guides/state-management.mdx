@@ -1,0 +1,584 @@
+---
+title: State Management
+description: Understanding when to use Store, Stack, and local state in your application
+---
+
+# State Management
+
+This boilerplate uses a **layered state management approach** with clear rules about when to use each layer.
+
+## The Three State Layers
+
+### 1. Local State (useState/useReducer)
+
+**For**: Component-specific UI state
+
+```tsx
+const [isOpen, setIsOpen] = useState(false)
+const [selectedTab, setSelectedTab] = useState('profile')
+const [formData, setFormData] = useReducer(formReducer, initialState)
+```
+
+### 2. Stack (TanStack Query)
+
+**For**: Server data with caching
+
+```ts
+const { data: articles } = useQuery({
+  queryKey: ['articles'],
+  queryFn: fetchArticles,
+  staleTime: 5 * 60 * 1000,
+})
+```
+
+### 3. Store (Zustand)
+
+**For**: Global state shared across disconnected components
+
+```ts
+const { user, setUser } = useUserStore()
+```
+
+## Store Philosophy
+
+<Warning>
+**The store is NOT a global variable container**. It's a synchronization layer for data that must be accessible in multiple disconnected parts of the component tree.
+</Warning>
+
+### ✅ When to USE the Store
+
+<Steps>
+
+### Data is fetched once and used in multiple places
+
+```ts
+// User data shown in header, sidebar, and profile page
+const useUserStore = create<UserStore>((set) => ({
+  currentUser: null,
+  setCurrentUser: (user) => set({ currentUser: user }),
+}))
+```
+
+### Data persists across navigation
+
+```ts
+// Shopping cart that persists between page visits
+const useCartStore = create<CartStore>()(persist(
+  (set) => ({
+    items: [],
+    addItem: (item) => set((state) => ({
+      items: [...state.items, item]
+    })),
+  }),
+  { name: 'shopping-cart' }
+))
+```
+
+### State shared between unrelated components
+
+```tsx
+// Theme that affects Header (top), Sidebar (left), and Content (center)
+const useThemeStore = create<ThemeStore>((set) => ({
+  theme: 'light',
+  toggleTheme: () => set((state) => ({
+    theme: state.theme === 'light' ? 'dark' : 'light'
+  })),
+}))
+```
+
+</Steps>
+
+### ❌ When NOT to Use the Store
+
+| Temptation | Correct Alternative |
+|------------|--------------------|
+| Store `isLoading`, `isOpen`, `isSelected` | `useState` in the component |
+| Store form field values | `useState` or `react-hook-form` |
+| Store current tab/step in a wizard | `useState` or `useReducer` |
+| Share data between parent and child | Pass as `props` |
+| Share callback between parent and child | Pass as `props` |
+| Store navigation flags | Pass through `props` or use local state |
+
+**Example - Wrong**:
+```tsx
+// ❌ DON'T DO THIS
+const useUIStore = create((set) => ({
+  isModalOpen: false,
+  setModalOpen: (open) => set({ isModalOpen: open }),
+}))
+
+function MyComponent() {
+  const { isModalOpen, setModalOpen } = useUIStore()
+  return <Modal open={isModalOpen} onClose={() => setModalOpen(false)} />
+}
+```
+
+**Example - Correct**:
+```tsx
+// ✓ DO THIS
+function MyComponent() {
+  const [isModalOpen, setModalOpen] = useState(false)
+  return <Modal open={isModalOpen} onClose={() => setModalOpen(false)} />
+}
+```
+
+## Decision Tree: Which State Layer?
+
+```
+Does the data come from an API?
+├─ NO → Is it shared between parent/child?
+│       ├─ YES → Pass as props
+│       └─ NO → useState/useReducer (local state)
+│
+└─ YES → Is it used in multiple disconnected components?
+         ├─ NO → TanStack Query (Stack) only
+         └─ YES → TanStack Query (Stack) + Zustand (Store)
+```
+
+## Complete Data Flow Examples
+
+### Example 1: Data with Cache and Store
+
+**Scenario**: User profile shown in header, sidebar, and profile page.
+
+<Steps>
+
+### Define domain type
+
+```ts features/user/domain/User.types.ts
+export interface User {
+  id: string
+  name: string
+  email: string
+  avatar: string
+}
+```
+
+### Create API layer
+
+```ts features/user/infrastructure/api/user.api.ts
+import { httpClient } from '../../../../core/api/httpClient'
+import type { User } from '../../domain/User.types'
+
+export const fetchCurrentUser = async (): Promise<User> => {
+  const { data } = await httpClient.get<User>('/user/me')
+  return data
+}
+```
+
+### Add Stack (TanStack Query)
+
+```ts features/user/infrastructure/stacks/user.stack.ts
+import { useQuery } from '@tanstack/react-query'
+import { fetchCurrentUser } from '../api/user.api'
+
+export const userKeys = {
+  current: ['user', 'current'] as const,
+}
+
+export const useCurrentUser = () => {
+  return useQuery({
+    queryKey: userKeys.current,
+    queryFn: fetchCurrentUser,
+    staleTime: 10 * 60 * 1000, // 10 minutes
+  })
+}
+```
+
+### Add Store (Zustand)
+
+```ts features/user/infrastructure/store/user.store.ts
+import { create } from 'zustand'
+import type { User } from '../../domain/User.types'
+
+interface UserStore {
+  currentUser: User | null
+  setCurrentUser: (user: User | null) => void
+}
+
+export const useUserStore = create<UserStore>((set) => ({
+  currentUser: null,
+  setCurrentUser: (user) => set({ currentUser: user }),
+}))
+```
+
+### Create Service (orchestration)
+
+```ts features/user/application/user.service.ts
+import { useCurrentUser } from '../infrastructure/stacks/user.stack'
+import { useUserStore } from '../infrastructure/store/user.store'
+import { useEffect } from 'react'
+
+export const useUserService = () => {
+  const userQuery = useCurrentUser()
+  const { currentUser, setCurrentUser } = useUserStore()
+
+  // Sync query result to store
+  useEffect(() => {
+    if (userQuery.data) {
+      setCurrentUser(userQuery.data)
+    }
+  }, [userQuery.data, setCurrentUser])
+
+  return {
+    user: currentUser,
+    isLoading: userQuery.isLoading,
+    error: userQuery.error,
+  }
+}
+```
+
+### Use in components
+
+```tsx components/Header.tsx
+import { useUserStore } from '~/features/user/infrastructure/store/user.store'
+
+export const Header = () => {
+  const { currentUser } = useUserStore()
+  
+  return (
+    <header>
+      <img src={currentUser?.avatar} />
+      <span>{currentUser?.name}</span>
+    </header>
+  )
+}
+```
+
+```tsx features/user/profile/profile.tsx
+import { useUserService } from '../application/user.service'
+
+export const Profile = () => {
+  const { user, isLoading } = useUserService()
+  
+  if (isLoading) return <div>Loading...</div>
+  
+  return (
+    <div>
+      <h1>{user?.name}</h1>
+      <p>{user?.email}</p>
+    </div>
+  )
+}
+```
+
+</Steps>
+
+**Flow**:
+```
+Profile component → useUserService → Stack (checks cache) → API (if needed)
+                                        ↓
+                                    Updates Store
+                                        ↓
+                    Header subscribes to store → re-renders
+```
+
+### Example 2: Data with Cache Only (No Store)
+
+**Scenario**: Blog articles list only used on one page.
+
+```tsx features/blog/articles/articles.tsx
+import { useArticles } from '../infrastructure/stacks/article.stack'
+
+export const Articles = () => {
+  const { data: articles, isLoading } = useArticles()
+  
+  if (isLoading) return <div>Loading...</div>
+  
+  return (
+    <div>
+      {articles?.map(article => (
+        <article key={article.id}>
+          <h2>{article.title}</h2>
+        </article>
+      ))}
+    </div>
+  )
+}
+```
+
+**Flow**:
+```
+Articles component → useArticles → Stack (checks cache) → API (if needed)
+                                      ↓
+                              Returns data directly
+```
+
+<Tip>
+No store needed because the data is only used in this component. TanStack Query provides the caching.
+</Tip>
+
+### Example 3: Local State Only
+
+**Scenario**: Form with temporary data.
+
+```tsx features/blog/create/createArticle.tsx
+import { useState } from 'react'
+import { useCreateArticle } from '../infrastructure/stacks/article.stack'
+
+export const CreateArticle = () => {
+  const [title, setTitle] = useState('')
+  const [content, setContent] = useState('')
+  const createMutation = useCreateArticle()
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await createMutation.mutateAsync({ title, content, tags: [] })
+    setTitle('')
+    setContent('')
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input value={title} onChange={(e) => setTitle(e.target.value)} />
+      <textarea value={content} onChange={(e) => setContent(e.target.value)} />
+      <button type="submit">Create</button>
+    </form>
+  )
+}
+```
+
+**Flow**:
+```
+User types → Updates local state → Submit → Mutation → API
+                                                ↓
+                                    Invalidates cache (Stack)
+                                                ↓
+                              List component re-fetches automatically
+```
+
+## Store Patterns with Zustand
+
+### Basic Store
+
+```ts
+import { create } from 'zustand'
+
+interface CounterStore {
+  count: number
+  increment: () => void
+  decrement: () => void
+  reset: () => void
+}
+
+export const useCounterStore = create<CounterStore>((set) => ({
+  count: 0,
+  increment: () => set((state) => ({ count: state.count + 1 })),
+  decrement: () => set((state) => ({ count: state.count - 1 })),
+  reset: () => set({ count: 0 }),
+}))
+```
+
+### Persisted Store (localStorage)
+
+```ts
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+
+interface AuthStore {
+  token: string | null
+  setToken: (token: string | null) => void
+  clearAuth: () => void
+}
+
+export const useAuthStore = create<AuthStore>()(persist(
+  (set) => ({
+    token: null,
+    setToken: (token) => set({ token }),
+    clearAuth: () => set({ token: null }),
+  }),
+  {
+    name: 'auth-storage',
+  }
+))
+```
+
+### Slices Pattern (Large Stores)
+
+```ts
+import { create } from 'zustand'
+
+interface UserSlice {
+  user: User | null
+  setUser: (user: User | null) => void
+}
+
+interface SettingsSlice {
+  theme: 'light' | 'dark'
+  setTheme: (theme: 'light' | 'dark') => void
+}
+
+const createUserSlice = (set): UserSlice => ({
+  user: null,
+  setUser: (user) => set({ user }),
+})
+
+const createSettingsSlice = (set): SettingsSlice => ({
+  theme: 'light',
+  setTheme: (theme) => set({ theme }),
+})
+
+export const useAppStore = create<UserSlice & SettingsSlice>()((...a) => ({
+  ...createUserSlice(...a),
+  ...createSettingsSlice(...a),
+}))
+```
+
+## Stack Patterns with TanStack Query
+
+### Query Keys Organization
+
+```ts
+// Hierarchical query keys
+export const articleKeys = {
+  all: ['articles'] as const,
+  lists: () => [...articleKeys.all, 'list'] as const,
+  list: (filters: ArticleFilters) => [...articleKeys.lists(), filters] as const,
+  details: () => [...articleKeys.all, 'detail'] as const,
+  detail: (id: string) => [...articleKeys.details(), id] as const,
+}
+```
+
+### Mutations with Cache Invalidation
+
+```ts
+export const useUpdateArticle = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: updateArticle,
+    onSuccess: (data) => {
+      // Invalidate list
+      queryClient.invalidateQueries({ queryKey: articleKeys.lists() })
+      // Update detail cache optimistically
+      queryClient.setQueryData(articleKeys.detail(data.id), data)
+    },
+  })
+}
+```
+
+### Optimistic Updates
+
+```ts
+export const useToggleLike = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: toggleArticleLike,
+    onMutate: async (articleId) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: articleKeys.detail(articleId) })
+      
+      // Snapshot previous value
+      const previous = queryClient.getQueryData(articleKeys.detail(articleId))
+      
+      // Optimistically update
+      queryClient.setQueryData(articleKeys.detail(articleId), (old: Article) => ({
+        ...old,
+        likes: old.liked ? old.likes - 1 : old.likes + 1,
+        liked: !old.liked,
+      }))
+      
+      return { previous }
+    },
+    onError: (err, articleId, context) => {
+      // Rollback on error
+      queryClient.setQueryData(articleKeys.detail(articleId), context?.previous)
+    },
+  })
+}
+```
+
+## Using Shared Storage Utilities
+
+The boilerplate provides `useStorage` hook for localStorage operations:
+
+```ts shared/hooks/useStorage.ts
+const { setStorage, getStorage, removeStorage, existStorage } = useStorage()
+
+// Store object
+setStorage('user-preferences', { theme: 'dark', language: 'en' })
+
+// Retrieve object
+const preferences = getStorage('user-preferences')
+
+// Check existence
+if (existStorage('auth-token')) {
+  // ...
+}
+
+// Remove
+removeStorage('temp-data')
+```
+
+<Tip>
+**Use `useStorage` for simple key-value persistence**. Use Zustand's `persist` middleware for complex state that needs reactivity.
+</Tip>
+
+## Best Practices
+
+<Warning>
+1. **Don't store derived state** - Compute it on the fly or use selectors
+2. **Don't duplicate state** - If Stack has it, don't copy to Store unless needed
+3. **Keep stores flat** - Avoid deep nesting
+4. **Use selectors** - Subscribe only to needed slices
+5. **Invalidate, don't mutate** - Let TanStack Query refetch rather than manual updates
+</Warning>
+
+<Tip>
+**Guiding principle**: Can the data be passed as props? → Don't use Store. Only use Store when components are too far apart in the tree.
+</Tip>
+
+## Common Patterns
+
+### Authentication State
+
+```ts
+// Store: token persistence
+const { token, setToken } = useAuthStore()
+
+// Stack: user profile caching
+const { data: user } = useQuery({
+  queryKey: ['user', 'me'],
+  queryFn: fetchCurrentUser,
+  enabled: !!token,
+})
+```
+
+### Multi-step Form
+
+```ts
+// Local state for form steps (no store needed)
+const [step, setStep] = useState(1)
+const [formData, updateFormData] = useReducer(formReducer, initialData)
+
+// Only save to API on final submit
+const handleSubmit = () => {
+  createMutation.mutate(formData)
+}
+```
+
+### Shopping Cart
+
+```ts
+// Store: cart items (persist across pages)
+const useCartStore = create(persist(
+  (set) => ({
+    items: [],
+    addItem: (item) => set((state) => ({ items: [...state.items, item] })),
+  }),
+  { name: 'cart' }
+))
+
+// Stack: product details (cache API responses)
+const { data: product } = useQuery({
+  queryKey: ['product', id],
+  queryFn: () => fetchProduct(id),
+})
+```
+
+## Next Steps
+
+- Learn about [Data Fetching](/guides/data-fetching) patterns with loaders and queries
+- See [Adding Features](/guides/adding-features) for implementing complete data flows
+- Understand [Creating Routes](/guides/creating-routes) for route-level data loading

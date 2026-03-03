@@ -1,0 +1,614 @@
+---
+title: Data Fetching
+description: Patterns for fetching data with TanStack Router loaders and TanStack Query
+---
+
+# Data Fetching
+
+This boilerplate provides multiple data fetching strategies depending on your needs.
+
+## Data Fetching Strategies
+
+### 1. Route Loaders (TanStack Router)
+
+**When**: You need data before the page renders (SEO, critical data)
+
+```ts
+export const productLoader = async ({ params }: { params: Record<string, string> }) => {
+  const product = await fetchProduct(params.id)
+  return { product }
+}
+```
+
+### 2. TanStack Query (React Query)
+
+**When**: You need caching, refetching, and reactive updates
+
+```ts
+const { data, isLoading } = useQuery({
+  queryKey: ['products', id],
+  queryFn: () => fetchProduct(id),
+})
+```
+
+### 3. Direct API Calls
+
+**When**: One-off operations (rare, usually mutations)
+
+```ts
+const handleSubmit = async () => {
+  await createProduct(formData)
+}
+```
+
+## Complete Flow: Route Loaders
+
+Loaders fetch data **before navigation completes**, making it available immediately when the component renders.
+
+<Steps>
+
+### Create the loader function
+
+```ts features/landing/loaders/productLoader.ts
+import { fetchProduct } from '../infrastructure/api/product.api'
+
+export const productLoader = async ({ params }: { params: Record<string, string> }) => {
+  const id = params.id
+  
+  if (!id) {
+    throw new Response('Product ID required', { status: 400 })
+  }
+  
+  try {
+    const product = await fetchProduct(id)
+    return { product }
+  } catch (error) {
+    // Throw Response to trigger error boundary
+    throw new Response('Product not found', { status: 404, statusText: 'Not Found' })
+  }
+}
+```
+
+<Warning>
+Loaders should throw `Response` objects for errors, not regular Error objects. This allows TanStack Router to handle HTTP-style errors properly.
+</Warning>
+
+### Register the loader in routes
+
+```ts features/landing/router/routes.ts
+import { productLoader } from '../loaders/productLoader'
+import { Product } from '../product/product'
+
+export const routes = [
+  {
+    path: landing.product.path,
+    component: Product,
+    loader: productLoader, // Register loader
+    metaData: product,
+  },
+]
+```
+
+### Access loader data in component
+
+```tsx features/landing/product/product.tsx
+import { useLoaderData } from '@tanstack/react-router'
+import type { FC } from 'react'
+
+interface ProductProps {
+  metaData: { title: string }
+}
+
+export const Product: FC<ProductProps> = ({ metaData }) => {
+  // Access data from loader
+  const { product } = useLoaderData({ from: '/product/$id' })
+
+  return (
+    <div>
+      <h1>{product.name}</h1>
+      <p>{product.description}</p>
+      <span>${product.price}</span>
+    </div>
+  )
+}
+```
+
+</Steps>
+
+<Tip>
+**Loaders run on navigation**, not on component mount. The data is ready before the component renders, eliminating loading states for critical data.
+</Tip>
+
+## Complete Flow: TanStack Query
+
+TanStack Query provides caching, automatic refetching, and optimistic updates.
+
+<Steps>
+
+### Create API function
+
+```ts features/blog/infrastructure/api/article.api.ts
+import { httpClient } from '../../../../core/api/httpClient'
+import type { Article } from '../../domain/Article.types'
+import type { ArticleApiResponse } from '../../domain/Article.response'
+
+const toArticle = (raw: ArticleApiResponse): Article => ({
+  id: raw.article_id,
+  title: raw.article_title,
+  content: raw.article_content,
+  publishedAt: new Date(raw.published_date),
+})
+
+export const fetchArticles = async (): Promise<Article[]> => {
+  const { data } = await httpClient.get<ArticleApiResponse[]>('/articles')
+  return data.map(toArticle)
+}
+
+export const fetchArticle = async (id: string): Promise<Article> => {
+  const { data } = await httpClient.get<ArticleApiResponse>(`/articles/${id}`)
+  return toArticle(data)
+}
+```
+
+### Create query hooks in Stack
+
+```ts features/blog/infrastructure/stacks/article.stack.ts
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { fetchArticles, fetchArticle, createArticle } from '../api/article.api'
+
+export const articleKeys = {
+  all: ['articles'] as const,
+  lists: () => [...articleKeys.all, 'list'] as const,
+  list: (filters: string) => [...articleKeys.lists(), filters] as const,
+  details: () => [...articleKeys.all, 'detail'] as const,
+  detail: (id: string) => [...articleKeys.details(), id] as const,
+}
+
+export const useArticles = () => {
+  return useQuery({
+    queryKey: articleKeys.lists(),
+    queryFn: fetchArticles,
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    refetchOnWindowFocus: true,
+  })
+}
+
+export const useArticle = (id: string) => {
+  return useQuery({
+    queryKey: articleKeys.detail(id),
+    queryFn: () => fetchArticle(id),
+    enabled: !!id, // Only fetch when id exists
+  })
+}
+```
+
+### Use in component
+
+```tsx features/blog/articles/articles.tsx
+import { useArticles } from '../infrastructure/stacks/article.stack'
+
+export const Articles = () => {
+  const { data: articles, isLoading, error, refetch } = useArticles()
+
+  if (isLoading) return <div>Loading articles...</div>
+  if (error) return <div>Error: {error.message}</div>
+
+  return (
+    <div>
+      <button onClick={() => refetch()}>Refresh</button>
+      {articles?.map(article => (
+        <article key={article.id}>
+          <h2>{article.title}</h2>
+        </article>
+      ))}
+    </div>
+  )
+}
+```
+
+</Steps>
+
+## Mutations with TanStack Query
+
+For creating, updating, or deleting data:
+
+<Steps>
+
+### Create mutation API function
+
+```ts features/blog/infrastructure/api/article.api.ts
+import type { CreateArticleRequest } from '../../domain/Article.request'
+
+export const createArticle = async (article: CreateArticleRequest): Promise<Article> => {
+  const { data } = await httpClient.post<ArticleApiResponse>('/articles', article)
+  return toArticle(data)
+}
+
+export const updateArticle = async (id: string, article: Partial<Article>): Promise<Article> => {
+  const { data } = await httpClient.put<ArticleApiResponse>(`/articles/${id}`, article)
+  return toArticle(data)
+}
+
+export const deleteArticle = async (id: string): Promise<void> => {
+  await httpClient.delete(`/articles/${id}`)
+}
+```
+
+### Create mutation hooks
+
+```ts features/blog/infrastructure/stacks/article.stack.ts
+export const useCreateArticle = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: createArticle,
+    onSuccess: () => {
+      // Invalidate queries to refetch
+      queryClient.invalidateQueries({ queryKey: articleKeys.lists() })
+    },
+  })
+}
+
+export const useUpdateArticle = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<Article> }) => 
+      updateArticle(id, data),
+    onSuccess: (updatedArticle) => {
+      // Update cache directly (optimistic)
+      queryClient.setQueryData(
+        articleKeys.detail(updatedArticle.id),
+        updatedArticle
+      )
+      // Also invalidate list
+      queryClient.invalidateQueries({ queryKey: articleKeys.lists() })
+    },
+  })
+}
+
+export const useDeleteArticle = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: deleteArticle,
+    onSuccess: (_, deletedId) => {
+      // Remove from cache
+      queryClient.removeQueries({ queryKey: articleKeys.detail(deletedId) })
+      // Invalidate list
+      queryClient.invalidateQueries({ queryKey: articleKeys.lists() })
+    },
+  })
+}
+```
+
+### Use mutations in components
+
+```tsx features/blog/create/createArticle.tsx
+import { useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
+import { useCreateArticle } from '../infrastructure/stacks/article.stack'
+import { ROUTES } from '~/shared/constants/routes'
+
+export const CreateArticle = () => {
+  const navigate = useNavigate()
+  const [title, setTitle] = useState('')
+  const [content, setContent] = useState('')
+  
+  const createMutation = useCreateArticle()
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    try {
+      const article = await createMutation.mutateAsync({
+        title,
+        content,
+        tags: [],
+      })
+      
+      // Navigate to the created article
+      navigate({ to: ROUTES.blog.article.to(article.id) })
+    } catch (error) {
+      console.error('Failed to create article:', error)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input 
+        value={title} 
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Title" 
+      />
+      <textarea 
+        value={content} 
+        onChange={(e) => setContent(e.target.value)}
+        placeholder="Content"
+      />
+      <button 
+        type="submit" 
+        disabled={createMutation.isPending}
+      >
+        {createMutation.isPending ? 'Creating...' : 'Create Article'}
+      </button>
+      {createMutation.isError && (
+        <div>Error: {createMutation.error.message}</div>
+      )}
+    </form>
+  )
+}
+```
+
+</Steps>
+
+## Combining Loaders and Queries
+
+Use loaders for initial data, then queries for updates:
+
+```tsx features/blog/article/article.tsx
+import { useLoaderData } from '@tanstack/react-router'
+import { useArticle } from '../infrastructure/stacks/article.stack'
+
+export const Article = () => {
+  // Initial data from loader (instant, no loading state)
+  const { product: initialProduct } = useLoaderData({ from: '/product/$id' })
+  
+  // Keep data fresh with query (background updates)
+  const { data: product = initialProduct } = useArticle(initialProduct.id)
+
+  return (
+    <div>
+      <h1>{product.title}</h1>
+      <p>{product.content}</p>
+    </div>
+  )
+}
+```
+
+<Tip>
+This pattern gives you instant rendering (from loader) plus automatic updates (from query).
+</Tip>
+
+## HTTP Client Configuration
+
+The boilerplate provides a singleton HTTP client with interceptors:
+
+```ts core/api/httpClient.ts
+import axios from 'axios'
+
+const httpClient = axios.create({
+  baseURL: import.meta.env.VITE_API_URL,
+  timeout: 10_000,
+})
+
+// Request interceptor (add auth token)
+httpClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem('auth-token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+// Response interceptor (handle errors)
+httpClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      // Redirect to login
+      window.location.href = '/login'
+    }
+    return Promise.reject(error)
+  }
+)
+
+export { httpClient }
+```
+
+**All API calls use this client**:
+```ts
+import { httpClient } from '../../../../core/api/httpClient'
+
+export const fetchArticles = async () => {
+  const { data } = await httpClient.get('/articles') // No need to add baseURL or token
+  return data
+}
+```
+
+<Warning>
+**Never create your own axios instance in features**. Always use the singleton `httpClient` from `core/api/httpClient.ts` to ensure interceptors apply globally.
+</Warning>
+
+## Adapter Pattern for API Responses
+
+Always transform API responses to domain types:
+
+```ts features/blog/infrastructure/api/article.api.ts
+// API response format (external contract)
+export interface ArticleApiResponse {
+  article_id: string
+  article_title: string
+  created_at: string
+  author_name: string
+}
+
+// Domain type (internal model)
+import type { Article } from '../../domain/Article.types'
+
+// Adapter function
+const toArticle = (raw: ArticleApiResponse): Article => ({
+  id: raw.article_id,
+  title: raw.article_title,
+  createdAt: new Date(raw.created_at),
+  author: raw.author_name,
+})
+
+// Use adapter in API functions
+export const fetchArticle = async (id: string): Promise<Article> => {
+  const { data } = await httpClient.get<ArticleApiResponse>(`/articles/${id}`)
+  return toArticle(data) // Transform before returning
+}
+```
+
+<Tip>
+**Benefits of adapters**:
+- Isolate domain from API changes
+- Type safety throughout the app
+- Transform data types (string dates → Date objects)
+- Handle field name differences (snake_case → camelCase)
+</Tip>
+
+## Query Key Patterns
+
+Organize query keys hierarchically:
+
+```ts
+export const articleKeys = {
+  all: ['articles'] as const,
+  lists: () => [...articleKeys.all, 'list'] as const,
+  list: (filters: ArticleFilters) => [...articleKeys.lists(), filters] as const,
+  details: () => [...articleKeys.all, 'detail'] as const,
+  detail: (id: string) => [...articleKeys.details(), id] as const,
+}
+
+// Usage:
+queryKey: articleKeys.lists()           // ['articles', 'list']
+queryKey: articleKeys.list({ tag: 'react' }) // ['articles', 'list', { tag: 'react' }]
+queryKey: articleKeys.detail('123')     // ['articles', 'detail', '123']
+
+// Invalidate all articles:
+queryClient.invalidateQueries({ queryKey: articleKeys.all })
+
+// Invalidate all lists (keeps details):
+queryClient.invalidateQueries({ queryKey: articleKeys.lists() })
+
+// Invalidate specific article:
+queryClient.invalidateQueries({ queryKey: articleKeys.detail('123') })
+```
+
+## Error Handling
+
+### In Loaders
+
+```ts
+export const productLoader = async ({ params }) => {
+  try {
+    const product = await fetchProduct(params.id)
+    return { product }
+  } catch (error) {
+    // Throw Response to trigger errorComponent
+    throw new Response('Product not found', { 
+      status: 404, 
+      statusText: 'Not Found' 
+    })
+  }
+}
+```
+
+### In Queries
+
+```tsx
+const { data, isLoading, error } = useArticles()
+
+if (error) {
+  return <div>Error: {error.message}</div>
+}
+```
+
+### In Mutations
+
+```tsx
+const createMutation = useCreateArticle()
+
+const handleSubmit = async () => {
+  try {
+    await createMutation.mutateAsync(data)
+  } catch (error) {
+    toast.error('Failed to create article')
+  }
+}
+
+// Or use mutation state
+{createMutation.isError && (
+  <div>Error: {createMutation.error.message}</div>
+)}
+```
+
+## Best Practices
+
+<Tip>
+1. **Use loaders for critical data** - Data needed before render (SEO, UX)
+2. **Use queries for everything else** - Benefit from caching and automatic refetching
+3. **Define query keys hierarchically** - Makes invalidation easier
+4. **Always use adapters** - Protect domain from API changes
+5. **Centralize API calls** - One function per endpoint in `infrastructure/api/`
+6. **Invalidate, don't mutate** - Let queries refetch rather than manually updating cache
+7. **Use the singleton httpClient** - Ensures interceptors apply globally
+</Tip>
+
+<Warning>
+**Common mistakes to avoid**:
+- ❌ Creating axios instances in features
+- ❌ Using API response types in components
+- ❌ Manually updating cache instead of invalidating
+- ❌ Fetching data in `useEffect` (use queries instead)
+- ❌ Storing fetched data in Store (use Stack/queries)
+</Warning>
+
+## Loading and Error States
+
+### With Queries
+
+```tsx
+const { data, isLoading, isError, error, refetch } = useArticles()
+
+if (isLoading) return <Spinner />
+if (isError) return <ErrorMessage error={error} onRetry={refetch} />
+if (!data?.length) return <EmptyState />
+
+return <ArticleList articles={data} />
+```
+
+### With Loaders (No loading state needed)
+
+```tsx
+const { product } = useLoaderData({ from: '/product/$id' })
+
+// Data is guaranteed to be here (or loader threw an error)
+return <ProductDetail product={product} />
+```
+
+## Prefetching Data
+
+```tsx
+import { useQueryClient } from '@tanstack/react-query'
+import { articleKeys } from '../infrastructure/stacks/article.stack'
+
+const ArticleLink = ({ id }) => {
+  const queryClient = useQueryClient()
+  
+  const handleMouseEnter = () => {
+    // Prefetch on hover
+    queryClient.prefetchQuery({
+      queryKey: articleKeys.detail(id),
+      queryFn: () => fetchArticle(id),
+    })
+  }
+  
+  return (
+    <Link 
+      to={ROUTES.blog.article.to(id)}
+      onMouseEnter={handleMouseEnter}
+    >
+      View Article
+    </Link>
+  )
+}
+```
+
+## Next Steps
+
+- Learn about [State Management](/guides/state-management) for organizing fetched data
+- See [Adding Features](/guides/adding-features) for complete data layer setup
+- Understand [Creating Routes](/guides/creating-routes) for loader configuration

@@ -1,0 +1,303 @@
+---
+title: Architecture Overview
+description: Core architectural principles and design patterns of the base-react-v2 boilerplate
+---
+
+## Introduction
+
+The base-react-v2 boilerplate is built on a **modular, layered architecture** that prioritizes separation of concerns, maintainability, and scalability. The architecture follows clean architecture principles with clear boundaries between business logic, infrastructure, and presentation layers.
+
+## Core Architectural Principles
+
+<AccordionGroup>
+  <Accordion title="Feature Isolation">
+    Each feature is a self-contained module with its own routes, layouts, pages, and business logic. Features never import directly from other features—shared code lives in `shared/`, and infrastructure lives in `core/`.
+
+    ```typescript
+    // ✅ Good: Feature imports from shared
+    import { authGuard } from '../../../shared/guard/authGuard'
+    
+    // ❌ Bad: Feature imports from another feature
+    import { userService } from '../../auth/application/user.service'
+    ```
+  </Accordion>
+
+  <Accordion title="Unidirectional Dependencies">
+    Dependencies always point inward toward the domain layer. Views don't know about APIs, APIs don't know about stores, and stores don't know about views.
+
+    ```
+    View → Hook → Application Service → Infrastructure (API/Stack/Store) → Domain
+    ```
+
+    The domain layer (types and interfaces) has zero dependencies. This ensures that business logic remains independent of implementation details.
+  </Accordion>
+
+  <Accordion title="Single Responsibility">
+    Each layer has a clear, focused responsibility:
+    - **Domain**: Define business entities and their types
+    - **Infrastructure**: Handle HTTP, caching, and state persistence
+    - **Application**: Orchestrate infrastructure layers
+    - **Hooks**: Manage UI state and user interactions
+    - **Views**: Render UI and handle user events
+  </Accordion>
+</AccordionGroup>
+
+## Three-Layer Architecture
+
+The codebase is organized into three main architectural layers:
+
+<Tabs>
+  <Tab title="Core Layer">
+    The **core** layer contains foundational infrastructure that the entire application depends on:
+
+    - Router configuration and instance (Singleton pattern)
+    - Global providers (QueryClient, Theme, i18n)
+    - HTTP client with interceptors
+    - Environment configuration
+
+    ```typescript
+    // src/core/router/tankStackRouter.tsx
+    const routeTree = rootRoute.addChildren([
+      ...baseRedirectRouter(baseRoute, rootRoute),
+      landingRouter(rootRoute),
+      authRouter(rootRoute),
+      backofficeRouter(rootRoute),
+    ])
+
+    const router = createRouter({ routeTree })
+    ```
+
+    **Key Pattern**: The router is a Singleton—created once and shared across the entire application.
+  </Tab>
+
+  <Tab title="Shared Layer">
+    The **shared** layer provides reusable code that doesn't belong to any specific feature:
+
+    | Directory | Purpose |
+    |-----------|----------|
+    | `components/ui/` | Generic UI components (Button, Modal, Input) |
+    | `constants/` | Global constants (routes, keys, enums) |
+    | `guard/` | Route guards for authentication and authorization |
+    | `hooks/` | Utility hooks (useCheckAuthenticated, useStorage) |
+    | `utils/` | Pure functions (formatters, validators) |
+    | `helpers/` | Presentation helpers (MetaTags, redirects) |
+
+    **Golden Rule**: Components in `shared/` must be domain-agnostic. If a component needs feature-specific knowledge, it belongs in that feature.
+  </Tab>
+
+  <Tab title="Features Layer">
+    The **features** layer contains independent business modules:
+
+    - `auth/` — Authentication (login, register)
+    - `landing/` — Public pages (home, about, contact, product)
+    - `backoffice/` — Protected admin area (dashboard, users)
+    - `error404/` — Error handling
+
+    Each feature can contain:
+    - `domain/` — Business types and interfaces
+    - `infrastructure/` — API calls, caching, state management
+    - `application/` — Service layer orchestrating infrastructure
+    - `layout/` — Feature-specific layouts
+    - `pages/` — Route pages with their local hooks
+    - `router/` — Route definitions and factory function
+
+    Features are **completely isolated**: they never import from each other.
+  </Tab>
+</Tabs>
+
+## Design Patterns in Action
+
+### Singleton Pattern
+
+<Note>
+  **Use Case**: HTTP Client and Router Instance
+</Note>
+
+Both the HTTP client and router are created once in `core/` and exported as singleton instances. This ensures:
+- Consistent interceptor behavior across all API calls
+- Single source of truth for routing configuration
+- Shared state and caching at the infrastructure level
+
+```typescript
+// core/api/httpClient.ts (conceptual example from GUIDE.md)
+const httpClient = axios.create({
+  baseURL: import.meta.env.VITE_API_URL,
+  timeout: 10_000,
+})
+
+// Global interceptors applied once
+httpClient.interceptors.request.use(attachToken)
+httpClient.interceptors.response.use(onSuccess, onError)
+
+export { httpClient }
+```
+
+All feature APIs import this single instance:
+
+```typescript
+// features/landing/infrastructure/api/product.api.ts
+import { httpClient } from '../../../../core/api/httpClient'
+
+export const fetchProduct = (id: string) => 
+  httpClient.get(`/products/${id}`)
+```
+
+### Adapter Pattern
+
+<Note>
+  **Use Case**: API Response Transformation
+</Note>
+
+API responses are transformed to domain types using adapters. This decouples the application from external API contracts:
+
+```typescript
+// features/landing/domain/Product.response.ts
+export interface ProductApiResponse {
+  product_id: number
+  product_name: string
+  unit_price: number
+}
+
+// features/landing/domain/Product.types.ts
+export interface Product {
+  id: number
+  name: string
+  price: number
+}
+
+// features/landing/infrastructure/api/product.api.ts
+const toProduct = (raw: ProductApiResponse): Product => ({
+  id: raw.product_id,
+  name: raw.product_name,
+  price: raw.unit_price,
+})
+
+export const fetchProduct = async (id: string): Promise<Product> => {
+  const { data } = await httpClient.get<ProductApiResponse>(`/products/${id}`)
+  return toProduct(data)  // Adapter transforms external to internal
+}
+```
+
+**Benefits**:
+- Views and services only work with domain types
+- API contract changes are isolated to the adapter
+- Type safety from API boundary to UI
+
+### Builder Pattern
+
+<Note>
+  **Use Case**: Router Composition
+</Note>
+
+Each feature exports a factory function (Builder) that constructs its route subtree. The main router composes these without knowing internal details:
+
+```typescript
+// features/landing/router/router.tsx
+export const landingRouter = (parentRoute: AnyRoute) => {
+  const landingLayoutRoute = createRoute({
+    getParentRoute: () => parentRoute,
+    id: 'landing',
+    component: LandingLayout,
+    // ... configuration
+  })
+
+  const childRoutes = routes.map((route) => {
+    // ... create child routes
+  })
+
+  return landingLayoutRoute.addChildren(childRoutes)
+}
+```
+
+Composition in the main router:
+
+```typescript
+// core/router/tankStackRouter.tsx:30-35
+const routeTree = rootRoute.addChildren([
+  ...baseRedirectRouter(baseRoute, rootRoute),
+  landingRouter(rootRoute),
+  authRouter(rootRoute),
+  backofficeRouter(rootRoute),
+])
+```
+
+**Benefits**:
+- Adding a new feature is a single line of code
+- Features control their own route structure
+- Router composition is declarative and type-safe
+
+## Nested Router Composition
+
+The architecture supports **nested features** where sub-features are children of parent features:
+
+```typescript
+// features/backoffice/router/router.tsx:46-50
+return backofficeLayoutRoute.addChildren([
+  dashboardIndexRoute,
+  ...childRoutes,
+  adminRouter(backofficeLayoutRoute),  // Nested feature
+])
+```
+
+This creates the hierarchy:
+
+```
+/backoffice                    ← Parent feature
+  /backoffice/dashboard
+  /backoffice/users
+  /backoffice/admin            ← Nested feature (adminRouter)
+    /backoffice/admin/users
+    /backoffice/admin/roles
+    /backoffice/admin/permissions
+```
+
+See the full [router implementation details](/architecture/routing) for more information.
+
+## State Management Philosophy
+
+<Note>
+  The store is **not** a dumping ground for global variables. It's a synchronization layer for data that must be shared across disconnected components.
+</Note>
+
+### When to Use Global Store
+
+✅ **Use the store when**:
+- Data from API needs to be displayed in multiple unrelated components
+- Data persists between route navigations
+- Data is expensive to re-fetch and should be cached
+
+❌ **Don't use the store for**:
+| Anti-Pattern | Better Alternative |
+|--------------|--------------------|
+| UI state (`isLoading`, `isOpen`, `isSelected`) | Local `useState` |
+| Navigation flags | Props or local context |
+| Form wizard steps | Local `useReducer` or `useState` |
+| Parent-child data sharing | Pass as props directly |
+
+**Guiding Principle**: If data can flow through props or callbacks, it doesn't need the store. Use stores only to break dependencies between unrelated component trees.
+
+## Responsibility Matrix
+
+| Layer | Responsibility | Imports From |
+|-------|---------------|-------------|
+| `domain/` | Define business types | Nothing |
+| `infrastructure/api/` | HTTP requests, response adaptation | `domain/`, `core/httpClient` |
+| `infrastructure/stacks/` | TanStack Query cache configuration | `infrastructure/api/`, `domain/` |
+| `infrastructure/store/` | Global state management | `domain/` |
+| `application/` | Orchestrate stack, store, and API | All infrastructure layers |
+| `hooks/` (page-level) | UI state, forms, call services | `application/`, `shared/hooks/` |
+| `View` (TSX) | Render UI, handle events | `hooks/`, `shared/components/` |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="File Structure" icon="folder-tree" href="/architecture/file-structure">
+    Explore the complete directory organization
+  </Card>
+  <Card title="Routing System" icon="route" href="/architecture/routing">
+    Learn TanStack Router implementation patterns
+  </Card>
+  <Card title="Data Flow" icon="arrow-right-arrow-left" href="/architecture/data-flow">
+    Understand how data moves through layers
+  </Card>
+</CardGroup>

@@ -1,0 +1,155 @@
+---
+title: 'Router'
+description: 'TanStack Router configuration and component'
+---
+
+## TankStackRouter
+
+The main router component that provides routing functionality for the application using TanStack Router.
+
+### Usage
+
+```tsx
+import { TankStackRouter } from './core/router/tankStackRouter'
+import { Providers } from './core/providers/providers'
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <Providers>
+      <TankStackRouter />
+    </Providers>
+  </StrictMode>
+)
+```
+
+### Features
+
+- **Suspense Fallback**: Displays a loading state while routes are being loaded
+- **Error Handling**: Uses `Error404` component for error boundaries
+- **Not Found Redirect**: Automatically redirects unknown routes to the base route
+- **DevTools**: Includes TanStack Router DevTools in development
+- **Hash History Support**: Commented code available for hash-based routing
+
+### Router Configuration
+
+The router is configured with the following structure:
+
+```tsx
+import { createRootRoute, createRouter } from '@tanstack/react-router'
+import { ROUTES } from '../../shared/constants/routes'
+
+const baseRoute = ROUTES.auth.login.fullPath
+
+const rootRoute = createRootRoute({
+  component: () => (
+    <Suspense fallback={<div>Loading…</div>}>
+      <Outlet />
+    </Suspense>
+  ),
+  errorComponent: Error404,
+  notFoundComponent: createNotFoundRedirect(baseRoute),
+})
+
+const routeTree = rootRoute.addChildren([
+  ...baseRedirectRouter(baseRoute, rootRoute),
+  landingRouter(rootRoute),
+  authRouter(rootRoute),
+  backofficeRouter(rootRoute),
+])
+
+const router = createRouter({ routeTree })
+```
+
+### Hash History Support
+
+To enable hash-based routing (e.g., `example.com/#/about` instead of `example.com/about`), uncomment the following lines:
+
+```tsx
+import { createHashHistory } from '@tanstack/react-router'
+
+// Create hash history instance
+const hashHistory = createHashHistory()
+
+// Pass to router configuration
+const router = createRouter({ routeTree, history: hashHistory })
+```
+
+This is useful for:
+- Static hosting environments that don't support server-side routing
+- Legacy browser support
+- Electron or mobile app webviews
+
+### Route Tree Structure
+
+The application uses a hierarchical route structure:
+
+1. **Base Redirect**: Root path `/` redirects to login
+2. **Landing Routes**: Public-facing pages (home, product, contact, about)
+3. **Auth Routes**: Authentication pages (login)
+4. **Backoffice Routes**: Protected admin area (dashboard, users, admin section)
+
+## baseRedirectRouter
+
+A utility function that creates redirect routes for base navigation.
+
+### Signature
+
+```tsx
+function baseRedirectRouter(
+  baseRoute: string,
+  parentRoute: AnyRoute
+): AnyRoute[]
+```
+
+### Parameters
+
+<ParamField path="baseRoute" type="string" required>
+  The target route path to redirect to (e.g., `/login`)
+</ParamField>
+
+<ParamField path="parentRoute" type="AnyRoute" required>
+  The parent route instance, typically the root route
+</ParamField>
+
+### Returns
+
+Returns an array of route configurations that redirect the root path to the specified base route.
+
+### Usage
+
+```tsx
+import { baseRedirectRouter } from './core/router/baseRedirectRouter'
+import { ROUTES } from '../../shared/constants/routes'
+
+const baseRoute = ROUTES.auth.login.fullPath // '/login'
+
+const routeTree = rootRoute.addChildren([
+  ...baseRedirectRouter(baseRoute, rootRoute),
+  // other routes...
+])
+```
+
+### Implementation Details
+
+The function creates an index route (`/`) that redirects to the base route using TanStack Router's `beforeLoad` hook:
+
+```tsx
+const indexRedirectRoute = createRoute({
+  getParentRoute: () => parentRoute,
+  path: '/',
+  beforeLoad: () => { throw redirect({ to: baseRoute }) },
+})
+```
+
+### Type Definitions
+
+```tsx
+import type { AnyRoute } from '@tanstack/react-router'
+```
+
+## Source Files
+
+- `~/workspace/source/src/core/router/tankStackRouter.tsx`
+- `~/workspace/source/src/core/router/baseRedirectRouter.tsx`

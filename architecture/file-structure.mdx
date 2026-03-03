@@ -1,0 +1,539 @@
+---
+title: File Structure
+description: Detailed explanation of the project's directory organization and naming conventions
+---
+
+## Overview
+
+The file system is organized to support **feature-based development** with clear separation between core infrastructure, shared utilities, and business features. Each directory has a specific purpose and follows consistent naming conventions.
+
+## Root Structure
+
+```
+src/
+├── App.tsx              Entry point of the application
+├── app.css              Global base styles
+├── core/                System-wide infrastructure
+├── shared/              Reusable cross-feature code
+└── features/            Business domain modules
+```
+
+## Core Layer
+
+<Note>
+  The `core/` directory contains foundational infrastructure that exists once per application.
+</Note>
+
+```
+core/
+├── providers/
+│   └── providers.tsx    Composition of global providers
+└── router/
+    ├── baseRedirectRouter.tsx    Root path redirection logic
+    └── tankStackRouter.tsx       Router configuration and instance
+```
+
+<Tabs>
+  <Tab title="providers/">
+    **Purpose**: Wrap the application with global context providers.
+
+    ```tsx
+    // src/core/providers/providers.tsx:1-12
+    type Props = {
+      children: React.ReactNode
+    }
+
+    export const Providers = ({ children }: Props) => {
+      return (
+        <div>
+          {children}
+        </div>
+      )
+    }
+    ```
+
+    This is where you would add:
+    - React Query's `QueryClientProvider`
+    - Theme providers (Material-UI, Chakra, etc.)
+    - i18n providers
+    - Authentication context
+    - Toast/notification providers
+  </Tab>
+
+  <Tab title="router/">
+    **Purpose**: Configure and instantiate the TanStack Router.
+
+    **baseRedirectRouter.tsx**: Creates an index route that redirects to a base path:
+
+    ```tsx
+    // src/core/router/baseRedirectRouter.tsx:4-13
+    export const baseRedirectRouter = (baseRoute: string, parentRoute: AnyRoute): AnyRoute[] => {
+
+      const indexRedirectRoute = createRoute({
+        getParentRoute: () => parentRoute,
+        path: '/',
+        beforeLoad: () => { throw redirect({ to: baseRoute }) },
+      })
+
+      return [indexRedirectRoute] as const
+    }
+    ```
+
+    **tankStackRouter.tsx**: Assembles all feature routers into a single tree:
+
+    ```tsx
+    // src/core/router/tankStackRouter.tsx:30-35
+    const routeTree = rootRoute.addChildren([
+      ...baseRedirectRouter(baseRoute, rootRoute),
+      landingRouter(rootRoute),
+      authRouter(rootRoute),
+      backofficeRouter(rootRoute),
+    ])
+    ```
+  </Tab>
+</Tabs>
+
+## Shared Layer
+
+<Note>
+  The `shared/` directory contains code used by **multiple features** but doesn't belong to any single feature.
+</Note>
+
+```
+shared/
+├── assets/         Images, icons, fonts, shared media
+├── components/
+│   └── ui/         Generic UI components (Button, Modal, Input)
+├── constants/      Global constants (routes, keys, enums)
+├── guard/          Route protection guards
+├── helpers/        Presentation helpers (MetaTags, redirects)
+├── hooks/          Utility hooks (auth checks, storage)
+└── utils/          Pure functions (formatters, validators)
+```
+
+### Directory Breakdown
+
+<AccordionGroup>
+  <Accordion title="constants/">
+    Centralized constants used across features.
+
+    **Example: Route definitions**
+
+    ```typescript
+    // src/shared/constants/routes.ts:9-31
+    const LANDING_ROUTES = {
+      home: {
+        path: '/home',
+        fullPath: '/home',
+        name: 'Home',
+      },
+      product: {
+        path: '/product/$id',
+        fullPath: '/product/$id',
+        name: 'Product',
+        to: (id: string) => `/product/${id}`,
+      },
+      contact: {
+        path: '/contact',
+        fullPath: '/contact',
+        name: 'Contact',
+      },
+      about: {
+        path: '/about',
+        fullPath: '/about',
+        name: 'About',
+      },
+    } as const satisfies Record<string, AppRoute>
+    ```
+
+    **Usage**:
+    ```typescript
+    // Type-safe navigation
+    navigate({ to: ROUTES.landing.product.to('abc-123') })
+    navigate({ to: ROUTES.landing.contact.path })
+
+    // Type-safe links
+    <Link to={ROUTES.landing.product.to(product.id)}>View Product</Link>
+    ```
+  </Accordion>
+
+  <Accordion title="guard/">
+    Functions that run before route loads to enforce access control.
+
+    **authGuard.ts**: Prevents authenticated users from accessing auth pages:
+
+    ```typescript
+    // src/shared/guard/authGuard.ts:5-12
+    export const authGuard = () => {
+      const isAuth = checkAuthenticated()
+      
+      if (isAuth) {
+        throw redirect({ to: ROUTES.backoffice.dashboard.fullPath })
+      }
+    }
+    ```
+
+    **backofficeGuard.ts**: Requires authentication for protected pages:
+
+    ```typescript
+    // src/shared/guard/backofficeGuard.ts:5-12
+    export const backofficeGuard = () => {
+      const isAuth = checkAuthenticated()
+      
+      if (!isAuth) {
+        throw redirect({ to: ROUTES.auth.login.fullPath })
+      }
+    }
+    ```
+
+    Guards are applied at the layout level in feature routers.
+  </Accordion>
+
+  <Accordion title="hooks/">
+    Reusable hooks for common application needs.
+
+    Examples:
+    - `useCheckAuthenticated.ts` — Check if user has active session
+    - `useStorage.ts` — Abstract localStorage/sessionStorage access
+
+    These hooks have no feature-specific logic.
+  </Accordion>
+
+  <Accordion title="utils/">
+    Pure utility functions with no side effects.
+
+    Examples:
+    - Date formatters
+    - String validators
+    - Number parsers
+    - Array/object transformers
+
+    **Characteristics**:
+    - No state mutations
+    - No external dependencies
+    - Fully testable in isolation
+  </Accordion>
+</AccordionGroup>
+
+## Features Layer
+
+Each feature is a **self-contained business module** with its own structure.
+
+```
+features/
+├── auth/               Authentication feature
+├── backoffice/         Admin dashboard feature
+├── landing/            Public-facing pages
+└── error404/           Global error pages
+```
+
+### Feature Anatomy
+
+<Tabs>
+  <Tab title="Simple Feature">
+    A minimal feature with just pages and routing:
+
+    ```
+    features/auth/
+    ├── layout/
+    │   └── authLayout.tsx       Feature-specific layout
+    ├── login/
+    │   └── login.tsx            Login page component
+    ├── register/
+    │   └── register.tsx         Registration page
+    └── router/
+        ├── metadata.ts          Page titles and meta tags
+        ├── routes.ts            Route configuration array
+        └── router.tsx           Builder function for route tree
+    ```
+
+    **routes.ts** structure:
+
+    ```typescript
+    // src/features/auth/router/routes.ts:11-17
+    export const routes = [
+      {
+        path: auth.login.path,
+        component: Login,
+        metadata: login,
+      },
+    ] as const
+    ```
+  </Tab>
+
+  <Tab title="Complex Feature">
+    A feature with data access includes additional layers:
+
+    ```
+    features/landing/
+    ├── domain/
+    │   ├── Product.types.ts       Business entity types
+    │   ├── Product.request.ts     API request types
+    │   └── Product.response.ts    API response types
+    ├── infrastructure/
+    │   ├── api/
+    │   │   └── product.api.ts     HTTP calls with adapters
+    │   ├── stacks/
+    │   │   └── product.stack.ts   TanStack Query config
+    │   └── store/
+    │       └── product.store.ts   Zustand/global state
+    ├── application/
+    │   └── product.service.ts     Orchestration layer
+    ├── layout/
+    │   └── layout.tsx
+    ├── home/
+    │   └── home.tsx
+    ├── product/
+    │   ├── product.tsx
+    │   └── hooks/
+    │       └── useProduct.ts      Component-specific logic
+    ├── loaders/
+    │   └── productLoader.ts       TanStack Router loaders
+    └── router/
+        ├── metadata.ts
+        ├── routes.ts
+        └── router.tsx
+    ```
+
+    **Loader integration**:
+
+    ```typescript
+    // src/features/landing/loaders/productLoader.ts:1-8
+    export const productLoader = ({ params }: { params: Record<string, string> }) => {
+      const id = params.id
+      console.log('id', id)
+      if (id === '2') {
+        throw new Response('Not Found', { status: 404, statusText: 'Not Found' })
+      }
+      return { params }
+    }
+    ```
+
+    Connected to route:
+
+    ```typescript
+    // src/features/landing/router/routes.ts:21-26
+    {
+      path: landing.product.path,
+      component: Product,
+      loader: productLoader,
+      metaData: product,
+    },
+    ```
+  </Tab>
+
+  <Tab title="Nested Feature">
+    Features can nest other features as sub-modules:
+
+    ```
+    features/backoffice/
+    ├── layout/
+    │   └── backofficeLayout.tsx
+    ├── dashboard/
+    │   └── dashboard.tsx
+    ├── users/
+    │   └── users.tsx
+    ├── admin/                     ← Nested feature
+    │   ├── layout/
+    │   │   └── adminLayout.tsx
+    │   ├── users/
+    │   │   └── adminUsers.tsx
+    │   ├── roles/
+    │   │   └── adminRoles.tsx
+    │   ├── permitions/
+    │   │   └── adminPermitions.tsx
+    │   └── router/
+    │       ├── metadata.ts
+    │       ├── routes.ts
+    │       └── router.tsx         ← Receives parent as argument
+    └── router/
+        ├── metadata.ts
+        ├── routes.ts
+        └── router.tsx             ← Composes admin router
+    ```
+
+    **Parent router composition**:
+
+    ```typescript
+    // src/features/backoffice/router/router.tsx:46-50
+    return backofficeLayoutRoute.addChildren([
+      dashboardIndexRoute,
+      ...childRoutes,
+      adminRouter(backofficeLayoutRoute),  // Pass parent route
+    ])
+    ```
+
+    **Child router receives parent**:
+
+    ```typescript
+    // src/features/backoffice/admin/router/router.tsx:23-31
+    export const adminRouter = (parentRoute: AnyRoute) => {
+
+      const adminLayoutRoute = createRoute({
+        getParentRoute: () => parentRoute,  // Parent is backoffice layout
+        path: ROUTES.admin.root.path,
+        component: AdminLayout,
+        errorComponent: Error404,
+        notFoundComponent: createNotFoundRedirect(ROUTES.admin.users.fullPath),
+      })
+    ```
+  </Tab>
+</Tabs>
+
+## Feature Router Pattern
+
+Every feature exports a **builder function** that constructs its route tree:
+
+```typescript
+// Generic pattern
+export const featureRouter = (parentRoute: AnyRoute) => {
+  
+  // 1. Create layout route
+  const layoutRoute = createRoute({
+    getParentRoute: () => parentRoute,
+    // ... configuration
+  })
+
+  // 2. Map page routes from routes.ts
+  const childRoutes = routes.map((route) => {
+    return createRoute({
+      getParentRoute: () => layoutRoute,
+      path: route.path,
+      component: route.component,
+      // ... configuration
+    })
+  })
+
+  // 3. Compose and return
+  return layoutRoute.addChildren(childRoutes)
+}
+```
+
+### Real Example: Landing Router
+
+```typescript
+// src/features/landing/router/router.tsx:11-43
+export const landingRouter = (parentRoute: AnyRoute)  => {
+
+  const landingLayoutRoute = createRoute({
+    getParentRoute: () => parentRoute,
+    id: 'landing',
+    component: LandingLayout,
+    errorComponent: Error404,
+    notFoundComponent: createNotFoundRedirect(ROUTES.landing.home.fullPath),
+  })
+
+  const childRoutes = routes.map((route) => {
+
+    const { path, metaData } = route
+
+    const Component = route.component as React.ComponentType<any>
+
+    const loader = 'loader' in route ? route.loader : undefined
+
+    return createRoute({
+      getParentRoute: () => landingLayoutRoute,
+      path: path,
+      component: () => (
+        <Suspense fallback={<div>Loading…</div>}>
+          <Component metaData={metaData} />
+        </Suspense>
+      ),
+      ...(loader ? { loader } : {}),
+      errorComponent: Error404,
+    })
+  })
+
+  return landingLayoutRoute.addChildren(childRoutes)
+}
+```
+
+**Key Features**:
+- Accepts `parentRoute` for composition
+- Creates layout with error/notFound handling
+- Maps routes with lazy loading support
+- Conditionally adds loaders
+- Returns composed route tree
+
+## Naming Conventions
+
+| Pattern | Example | Usage |
+|---------|---------|-------|
+| Feature folders | `auth/`, `landing/`, `backoffice/` | Lowercase, kebab-case |
+| Page folders | `login/`, `dashboard/`, `product/` | Match route segment |
+| Components | `Login.tsx`, `Dashboard.tsx` | PascalCase |
+| Router files | `router.tsx`, `routes.ts`, `metadata.ts` | Lowercase |
+| Hooks | `useProduct.ts`, `useAuth.ts` | camelCase with `use` prefix |
+| Services | `product.service.ts`, `auth.service.ts` | camelCase with `.service` suffix |
+| APIs | `product.api.ts`, `user.api.ts` | camelCase with `.api` suffix |
+| Types | `Product.types.ts`, `User.types.ts` | PascalCase entity with `.types` suffix |
+| Guards | `authGuard.ts`, `backofficeGuard.ts` | camelCase with `Guard` suffix |
+
+## Directory Rules
+
+<Note type="warning">
+  **Critical Rules for Maintainability**
+</Note>
+
+1. **No Cross-Feature Imports**: Features never import from other features. Use `shared/` for cross-cutting concerns.
+
+   ```typescript
+   // ❌ BAD
+   import { userService } from '../../auth/application/user.service'
+   
+   // ✅ GOOD
+   import { useAuth } from '../../../shared/hooks/useAuth'
+   ```
+
+2. **Domain Has Zero Dependencies**: Types in `domain/` never import from infrastructure or application layers.
+
+   ```typescript
+   // ✅ domain/Product.types.ts
+   export interface Product {
+     id: number
+     name: string
+     price: number
+   }
+   // No imports!
+   ```
+
+3. **Shared Is Domain-Agnostic**: Components in `shared/` shouldn't know about specific features.
+
+   ```typescript
+   // ❌ BAD: shared/components/ProductCard.tsx
+   // This belongs in features/landing/components/
+   
+   // ✅ GOOD: shared/components/ui/Card.tsx
+   // Generic card component
+   ```
+
+4. **Router Files Are Consistent**: Every feature router has the same three files:
+   - `metadata.ts` — Page metadata
+   - `routes.ts` — Route configuration array
+   - `router.tsx` — Builder function
+
+## Folder Discovery
+
+To explore the actual structure:
+
+```bash
+# List all directories
+find src -type d | sort
+
+# See feature structure
+ls -R src/features/landing/
+
+# Count files per feature
+find src/features/landing -type f | wc -l
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Routing Implementation" icon="route" href="/architecture/routing">
+    Learn how the Builder pattern composes routes
+  </Card>
+  <Card title="Data Flow Patterns" icon="arrow-right-arrow-left" href="/architecture/data-flow">
+    Understand layered data architecture
+  </Card>
+</CardGroup>

@@ -1,0 +1,981 @@
+---
+title: Data Flow Patterns
+description: Comprehensive guide to data movement through domain, infrastructure, and application layers
+---
+
+## Layered Architecture
+
+The boilerplate implements a **strict layered architecture** where data flows through well-defined boundaries. Each layer has a specific responsibility and can only communicate with adjacent layers.
+
+## Layer Hierarchy
+
+```
+┌─────────────────────────────────────────┐
+│            View (TSX)                   │  ← User interaction
+│  - Renders UI                           │
+│  - Handles events                       │
+└─────────────────┬───────────────────────┘
+                  │
+┌─────────────────▼───────────────────────┐
+│     Hooks (use<Feature>.ts)             │  ← UI logic
+│  - Form state                           │
+│  - Local UI state                       │
+│  - Calls application services           │
+└─────────────────┬───────────────────────┘
+                  │
+┌─────────────────▼───────────────────────┐
+│  Application (<entity>.service.ts)      │  ← Orchestration
+│  - Coordinates infrastructure layers    │
+│  - Business logic                       │
+└─────┬───────────┬───────────┬───────────┘
+      │           │           │
+┌─────▼─────┐ ┌──▼──────┐ ┌──▼──────────┐
+│   Stack   │ │  Store  │ │     API     │  ← Infrastructure
+│  (Cache)  │ │ (State) │ │  (Network)  │
+└─────┬─────┘ └──┬──────┘ └──┬──────────┘
+      │           │           │
+      └───────────┴───────────┘
+                  │
+┌─────────────────▼───────────────────────┐
+│        Domain (Types)                   │  ← Pure data
+│  - Interfaces                           │
+│  - Type definitions                     │
+│  - Zero dependencies                    │
+└─────────────────────────────────────────┘
+```
+
+## Feature Anatomy with Data Layers
+
+A complete feature with data access follows this structure:
+
+```
+features/<name>/
+├── domain/
+│   ├── <Entity>.types.ts       ← Business entity types
+│   ├── <Entity>.request.ts     ← API request types
+│   └── <Entity>.response.ts    ← API response types
+│
+├── infrastructure/
+│   ├── api/
+│   │   └── <entity>.api.ts     ← HTTP calls + adapters
+│   ├── stacks/
+│   │   └── <entity>.stack.ts   ← TanStack Query configuration
+│   └── store/
+│       └── <entity>.store.ts   ← Zustand/Redux store
+│
+├── application/
+│   └── <entity>.service.ts     ← Orchestration layer
+│
+└── <page>/
+    ├── <page>.tsx              ← View component
+    └── hooks/
+        └── use<Page>.ts        ← UI logic hook
+```
+
+## Data Flow Patterns
+
+There are three primary data flow patterns based on use case:
+
+<Tabs>
+  <Tab title="Full Path (Cache + Store)">
+    ### With Cache and Global State
+
+    Used when data needs to be:
+    - Cached to avoid redundant API calls
+    - Shared across multiple disconnected components
+    - Persisted during route transitions
+
+    ```
+    View (TSX)
+      │
+      └─► Hook (use<Page>.ts)
+            │
+            └─► Application Service (<entity>.service.ts)
+                  │
+                  ├─► Stack (TanStack Query)
+                  │     │
+                  │     ├─ Cache Hit? → Return cached data
+                  │     │
+                  │     └─ Cache Miss → Call API
+                  │           │
+                  ├───────────▼
+                  │     API (<entity>.api.ts)
+                  │           │
+                  │           ├─ HTTP Request (httpClient)
+                  │           │
+                  │           └─ Adapter transforms response
+                  │                 │
+                  │                 ├─ ProductApiResponse → Product
+                  │                 │
+                  └─────────────────┴─► Store (<entity>.store.ts)
+                                          │
+                                          └─► Notifies subscribers
+                                                │
+                                          Hook receives updated data
+                                                │
+                                          View re-renders
+    ```
+
+    ### Example Flow
+
+    ```typescript
+    // 1. View calls hook
+    const { products, isLoading } = useProducts()
+
+    // 2. Hook calls service
+    const service = new ProductService()
+    const products = await service.fetchProducts()
+
+    // 3. Service queries stack
+    const query = useQuery(productStack.list())
+
+    // 4. Stack checks cache, calls API if needed
+    if (!cached) {
+      const response = await productApi.fetchProducts()
+      return response
+    }
+
+    // 5. API transforms response
+    const raw = await httpClient.get('/products')
+    return raw.map(toProduct)  // Adapter
+
+    // 6. Service updates store
+    productStore.setProducts(products)
+
+    // 7. Store notifies subscribers
+    // 8. Hook re-renders with data
+    // 9. View updates
+    ```
+  </Tab>
+
+  <Tab title="Direct Path (Simple)">
+    ### Without Cache or Store
+
+    Used when data is:
+    - Only needed in one component
+    - Not expensive to re-fetch
+    - Doesn't need to persist
+
+    ```
+    View (TSX)
+      │
+      └─► Hook (use<Page>.ts)
+            │
+            └─► API (<entity>.api.ts)
+                  │
+                  ├─ HTTP Request
+                  │
+                  └─ Adapter transforms response
+                        │
+                  Hook receives data
+                        │
+                  View renders
+    ```
+
+    ### Example Flow
+
+    ```typescript
+    // 1. View calls hook
+    const { data } = useProductDetails(id)
+
+    // 2. Hook calls API directly
+    const data = await productApi.fetchProduct(id)
+
+    // 3. API fetches and transforms
+    const raw = await httpClient.get(`/products/${id}`)
+    return toProduct(raw.data)
+
+    // 4. Hook returns to view
+    // 5. View renders
+    ```
+
+    <Note>
+      This is the **preferred path** when data doesn't need to be shared. Keep it simple!
+    </Note>
+  </Tab>
+
+  <Tab title="Write Path (POST/PUT)">
+    ### Mutation Flow
+
+    Used for creating, updating, or deleting data:
+
+    ```
+    View (Form)
+      │
+      └─► Hook (use<Form>.ts)
+            │ Maintains form state
+            │ On submit →
+            │
+            └─► Application Service
+                  │
+                  ├─► (Optional) Store
+                  │     Save temporary data
+                  │     (useful for multi-step wizards)
+                  │
+                  ├─► API
+                  │     POST/PUT/PATCH/DELETE
+                  │     │
+                  │     └─ Response
+                  │
+                  ├─► Stack
+                  │     Invalidate cache
+                  │     Update cached queries
+                  │
+                  └─► Store
+                        Update global state
+                        │
+                  Subscribers auto-update
+    ```
+
+    ### Example Flow
+
+    ```typescript
+    // 1. View submits form
+    <form onSubmit={handleSubmit(onSubmit)}>
+
+    // 2. Hook handles submission
+    const onSubmit = async (data) => {
+      await productService.createProduct(data)
+    }
+
+    // 3. Service orchestrates
+    async createProduct(data: ProductRequest) {
+      // 3a. Optimistically update store (optional)
+      productStore.addProduct(optimisticProduct)
+
+      // 3b. Send to API
+      const created = await productApi.createProduct(data)
+
+      // 3c. Invalidate cache
+      queryClient.invalidateQueries({ queryKey: ['products'] })
+
+      // 3d. Update store with real data
+      productStore.updateProduct(created.id, created)
+
+      // Service may or may not return value
+      // (subscribers already notified)
+    }
+
+    // 4. Components using product data automatically re-render
+    ```
+
+    <Note type="warning">
+      The Application Service doesn't always need to return a value. If the store or stack already notifies subscribers, explicit returns are redundant.
+    </Note>
+  </Tab>
+</Tabs>
+
+## Layer Responsibilities
+
+<AccordionGroup>
+  <Accordion title="Domain Layer">
+    **Location**: `features/<name>/domain/`
+
+    **Responsibility**: Define pure business entities with zero dependencies.
+
+    ### Entity Types
+
+    ```typescript
+    // domain/Product.types.ts
+    export interface Product {
+      id: number
+      name: string
+      price: number
+      description: string
+      category: ProductCategory
+      createdAt: Date
+    }
+
+    export enum ProductCategory {
+      Electronics = 'electronics',
+      Clothing = 'clothing',
+      Food = 'food',
+    }
+    ```
+
+    ### API Response Types
+
+    ```typescript
+    // domain/Product.response.ts
+    export interface ProductApiResponse {
+      product_id: number
+      product_name: string
+      unit_price: number
+      product_description: string
+      category_code: string
+      created_timestamp: string
+    }
+    ```
+
+    ### Request Types
+
+    ```typescript
+    // domain/Product.request.ts
+    export interface CreateProductRequest {
+      name: string
+      price: number
+      description: string
+      categoryCode: string
+    }
+
+    export interface UpdateProductRequest {
+      id: number
+      name?: string
+      price?: number
+      description?: string
+    }
+    ```
+
+    **Rules**:
+    - No imports from other layers
+    - Pure TypeScript interfaces and types
+    - Can import from other domain files only
+  </Accordion>
+
+  <Accordion title="Infrastructure - API Layer">
+    **Location**: `features/<name>/infrastructure/api/`
+
+    **Responsibility**: HTTP communication and response adaptation.
+
+    ### API Implementation
+
+    ```typescript
+    // infrastructure/api/product.api.ts
+    import { httpClient } from '@/core/api/httpClient'
+    import type { Product } from '../../domain/Product.types'
+    import type { ProductApiResponse } from '../../domain/Product.response'
+    import type { CreateProductRequest } from '../../domain/Product.request'
+
+    // Adapter: External → Internal
+    const toProduct = (raw: ProductApiResponse): Product => ({
+      id: raw.product_id,
+      name: raw.product_name,
+      price: raw.unit_price,
+      description: raw.product_description,
+      category: raw.category_code as ProductCategory,
+      createdAt: new Date(raw.created_timestamp),
+    })
+
+    // Adapter: Internal → External
+    const toCreateRequest = (data: CreateProductRequest) => ({
+      product_name: data.name,
+      unit_price: data.price,
+      product_description: data.description,
+      category_code: data.categoryCode,
+    })
+
+    export const productApi = {
+      async fetchProducts(): Promise<Product[]> {
+        const { data } = await httpClient.get<ProductApiResponse[]>('/products')
+        return data.map(toProduct)
+      },
+
+      async fetchProduct(id: number): Promise<Product> {
+        const { data } = await httpClient.get<ProductApiResponse>(`/products/${id}`)
+        return toProduct(data)
+      },
+
+      async createProduct(request: CreateProductRequest): Promise<Product> {
+        const payload = toCreateRequest(request)
+        const { data } = await httpClient.post<ProductApiResponse>('/products', payload)
+        return toProduct(data)
+      },
+
+      async updateProduct(id: number, request: UpdateProductRequest): Promise<Product> {
+        const { data } = await httpClient.patch<ProductApiResponse>(`/products/${id}`, request)
+        return toProduct(data)
+      },
+
+      async deleteProduct(id: number): Promise<void> {
+        await httpClient.delete(`/products/${id}`)
+      },
+    }
+    ```
+
+    **Key Points**:
+    - Uses singleton `httpClient` from `core/`
+    - Adapters transform between external and internal types
+    - Returns domain types, never API response types
+    - Handles HTTP-specific concerns (endpoints, methods, headers)
+  </Accordion>
+
+  <Accordion title="Infrastructure - Stack Layer">
+    **Location**: `features/<name>/infrastructure/stacks/`
+
+    **Responsibility**: TanStack Query configuration for caching and synchronization.
+
+    ### Stack Implementation
+
+    ```typescript
+    // infrastructure/stacks/product.stack.ts
+    import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+    import { productApi } from '../api/product.api'
+    import type { CreateProductRequest, UpdateProductRequest } from '../../domain/Product.request'
+
+    // Query keys for cache management
+    export const productKeys = {
+      all: ['products'] as const,
+      lists: () => [...productKeys.all, 'list'] as const,
+      list: (filters?: Record<string, any>) => [...productKeys.lists(), filters] as const,
+      details: () => [...productKeys.all, 'detail'] as const,
+      detail: (id: number) => [...productKeys.details(), id] as const,
+    }
+
+    // Queries
+    export const useProductsQuery = (filters?: Record<string, any>) => {
+      return useQuery({
+        queryKey: productKeys.list(filters),
+        queryFn: () => productApi.fetchProducts(),
+        staleTime: 5 * 60 * 1000, // 5 minutes
+      })
+    }
+
+    export const useProductQuery = (id: number) => {
+      return useQuery({
+        queryKey: productKeys.detail(id),
+        queryFn: () => productApi.fetchProduct(id),
+        enabled: id > 0,
+      })
+    }
+
+    // Mutations
+    export const useCreateProductMutation = () => {
+      const queryClient = useQueryClient()
+
+      return useMutation({
+        mutationFn: (data: CreateProductRequest) => productApi.createProduct(data),
+        onSuccess: () => {
+          // Invalidate list cache
+          queryClient.invalidateQueries({ queryKey: productKeys.lists() })
+        },
+      })
+    }
+
+    export const useUpdateProductMutation = () => {
+      const queryClient = useQueryClient()
+
+      return useMutation({
+        mutationFn: ({ id, data }: { id: number; data: UpdateProductRequest }) =>
+          productApi.updateProduct(id, data),
+        onSuccess: (updated) => {
+          // Update specific item in cache
+          queryClient.setQueryData(productKeys.detail(updated.id), updated)
+          // Invalidate list
+          queryClient.invalidateQueries({ queryKey: productKeys.lists() })
+        },
+      })
+    }
+
+    export const useDeleteProductMutation = () => {
+      const queryClient = useQueryClient()
+
+      return useMutation({
+        mutationFn: (id: number) => productApi.deleteProduct(id),
+        onSuccess: (_, id) => {
+          // Remove from cache
+          queryClient.removeQueries({ queryKey: productKeys.detail(id) })
+          // Invalidate list
+          queryClient.invalidateQueries({ queryKey: productKeys.lists() })
+        },
+      })
+    }
+    ```
+
+    **Benefits**:
+    - Automatic caching and background refetching
+    - Optimistic updates
+    - Cache invalidation on mutations
+    - Loading and error states
+  </Accordion>
+
+  <Accordion title="Infrastructure - Store Layer">
+    **Location**: `features/<name>/infrastructure/store/`
+
+    **Responsibility**: Global state for data shared across components.
+
+    ### Store Implementation (Zustand)
+
+    ```typescript
+    // infrastructure/store/product.store.ts
+    import { create } from 'zustand'
+    import { persist } from 'zustand/middleware'
+    import type { Product } from '../../domain/Product.types'
+
+    interface ProductStore {
+      // State
+      products: Product[]
+      selectedProduct: Product | null
+      
+      // Actions
+      setProducts: (products: Product[]) => void
+      addProduct: (product: Product) => void
+      updateProduct: (id: number, product: Partial<Product>) => void
+      removeProduct: (id: number) => void
+      selectProduct: (product: Product | null) => void
+      clear: () => void
+    }
+
+    export const useProductStore = create<ProductStore>()(persist(
+      (set) => ({
+        // Initial state
+        products: [],
+        selectedProduct: null,
+
+        // Actions
+        setProducts: (products) => set({ products }),
+        
+        addProduct: (product) => set((state) => ({
+          products: [...state.products, product],
+        })),
+        
+        updateProduct: (id, updates) => set((state) => ({
+          products: state.products.map((p) =>
+            p.id === id ? { ...p, ...updates } : p
+          ),
+        })),
+        
+        removeProduct: (id) => set((state) => ({
+          products: state.products.filter((p) => p.id !== id),
+        })),
+        
+        selectProduct: (product) => set({ selectedProduct: product }),
+        
+        clear: () => set({ products: [], selectedProduct: null }),
+      }),
+      {
+        name: 'product-store',
+        partialize: (state) => ({ selectedProduct: state.selectedProduct }),
+      }
+    ))
+    ```
+
+    **When to use**:
+    - Data needed in multiple unrelated components
+    - State that persists across route changes
+    - Expensive data to re-fetch
+
+    **When NOT to use**:
+    - UI state (`isOpen`, `isLoading`)
+    - Form state (use `react-hook-form`)
+    - Parent-child communication (use props)
+  </Accordion>
+
+  <Accordion title="Application Layer">
+    **Location**: `features/<name>/application/`
+
+    **Responsibility**: Orchestrate infrastructure layers with business logic.
+
+    ### Service Implementation
+
+    ```typescript
+    // application/product.service.ts
+    import { productApi } from '../infrastructure/api/product.api'
+    import { useProductStore } from '../infrastructure/store/product.store'
+    import { useQueryClient } from '@tanstack/react-query'
+    import { productKeys } from '../infrastructure/stacks/product.stack'
+    import type { CreateProductRequest, UpdateProductRequest } from '../domain/Product.request'
+    import type { Product } from '../domain/Product.types'
+
+    export class ProductService {
+      private store = useProductStore.getState()
+      private queryClient = useQueryClient()
+
+      /**
+       * Fetch all products with caching
+       */
+      async fetchProducts(): Promise<Product[]> {
+        // Check cache first
+        const cached = this.queryClient.getQueryData<Product[]>(productKeys.list())
+        if (cached) return cached
+
+        // Fetch from API
+        const products = await productApi.fetchProducts()
+
+        // Update cache
+        this.queryClient.setQueryData(productKeys.list(), products)
+
+        // Update store for global access
+        this.store.setProducts(products)
+
+        return products
+      }
+
+      /**
+       * Fetch single product by ID
+       */
+      async fetchProduct(id: number): Promise<Product> {
+        const cached = this.queryClient.getQueryData<Product>(productKeys.detail(id))
+        if (cached) return cached
+
+        const product = await productApi.fetchProduct(id)
+        this.queryClient.setQueryData(productKeys.detail(id), product)
+
+        return product
+      }
+
+      /**
+       * Create new product
+       */
+      async createProduct(data: CreateProductRequest): Promise<Product> {
+        // Optimistic update to store
+        const tempProduct: Product = {
+          id: Date.now(), // Temporary ID
+          ...data,
+          createdAt: new Date(),
+        }
+        this.store.addProduct(tempProduct)
+
+        try {
+          // Create via API
+          const created = await productApi.createProduct(data)
+
+          // Update store with real data
+          this.store.removeProduct(tempProduct.id)
+          this.store.addProduct(created)
+
+          // Invalidate list cache
+          this.queryClient.invalidateQueries({ queryKey: productKeys.lists() })
+
+          return created
+        } catch (error) {
+          // Rollback optimistic update
+          this.store.removeProduct(tempProduct.id)
+          throw error
+        }
+      }
+
+      /**
+       * Update existing product
+       */
+      async updateProduct(id: number, data: UpdateProductRequest): Promise<void> {
+        // Optimistic update
+        this.store.updateProduct(id, data)
+
+        try {
+          const updated = await productApi.updateProduct(id, data)
+          
+          // Update cache
+          this.queryClient.setQueryData(productKeys.detail(id), updated)
+          this.queryClient.invalidateQueries({ queryKey: productKeys.lists() })
+          
+          // Store already updated optimistically
+        } catch (error) {
+          // Rollback by refetching
+          const current = await productApi.fetchProduct(id)
+          this.store.updateProduct(id, current)
+          throw error
+        }
+      }
+
+      /**
+       * Delete product
+       */
+      async deleteProduct(id: number): Promise<void> {
+        // Remove from store immediately
+        this.store.removeProduct(id)
+
+        try {
+          await productApi.deleteProduct(id)
+          
+          // Clean up cache
+          this.queryClient.removeQueries({ queryKey: productKeys.detail(id) })
+          this.queryClient.invalidateQueries({ queryKey: productKeys.lists() })
+        } catch (error) {
+          // Refetch to restore state
+          const products = await productApi.fetchProducts()
+          this.store.setProducts(products)
+          throw error
+        }
+      }
+    }
+    ```
+
+    **Key Responsibilities**:
+    - Coordinate stack, store, and API
+    - Implement business logic
+    - Handle optimistic updates
+    - Manage error recovery
+    - Cache invalidation strategy
+  </Accordion>
+
+  <Accordion title="Hook Layer">
+    **Location**: `features/<name>/<page>/hooks/`
+
+    **Responsibility**: Component-specific logic, form handling, service calls.
+
+    ### Hook Implementation
+
+    ```typescript
+    // products/hooks/useProductList.ts
+    import { useState, useEffect } from 'react'
+    import { useProductStore } from '../../infrastructure/store/product.store'
+    import { ProductService } from '../../application/product.service'
+
+    export const useProductList = () => {
+      const products = useProductStore((state) => state.products)
+      const [isLoading, setIsLoading] = useState(false)
+      const [error, setError] = useState<Error | null>(null)
+
+      const service = new ProductService()
+
+      const loadProducts = async () => {
+        setIsLoading(true)
+        setError(null)
+        try {
+          await service.fetchProducts()
+        } catch (err) {
+          setError(err as Error)
+        } finally {
+          setIsLoading(false)
+        }
+      }
+
+      useEffect(() => {
+        loadProducts()
+      }, [])
+
+      return {
+        products,
+        isLoading,
+        error,
+        refetch: loadProducts,
+      }
+    }
+    ```
+
+    ### Form Hook
+
+    ```typescript
+    // product-form/hooks/useProductForm.ts
+    import { useForm } from 'react-hook-form'
+    import { useNavigate } from '@tanstack/react-router'
+    import { ProductService } from '../../application/product.service'
+    import { ROUTES } from '@/shared/constants/routes'
+    import type { CreateProductRequest } from '../../domain/Product.request'
+
+    export const useProductForm = () => {
+      const navigate = useNavigate()
+      const service = new ProductService()
+
+      const {
+        register,
+        handleSubmit,
+        formState: { errors, isSubmitting },
+      } = useForm<CreateProductRequest>()
+
+      const onSubmit = async (data: CreateProductRequest) => {
+        try {
+          const created = await service.createProduct(data)
+          navigate({ to: ROUTES.landing.product.to(String(created.id)) })
+        } catch (error) {
+          console.error('Failed to create product:', error)
+          // Handle error (toast, etc.)
+        }
+      }
+
+      return {
+        register,
+        handleSubmit: handleSubmit(onSubmit),
+        errors,
+        isSubmitting,
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="View Layer">
+    **Location**: `features/<name>/<page>/<page>.tsx`
+
+    **Responsibility**: Render UI and handle user interactions.
+
+    ### View Implementation
+
+    ```tsx
+    // products/products.tsx
+    import { useProductList } from './hooks/useProductList'
+    import { ProductCard } from '@/shared/components/ProductCard'
+
+    export const Products = () => {
+      const { products, isLoading, error, refetch } = useProductList()
+
+      if (isLoading) return <div>Loading products...</div>
+      if (error) return <div>Error: {error.message}</div>
+
+      return (
+        <div>
+          <h1>Products</h1>
+          <button onClick={refetch}>Refresh</button>
+          
+          <div className="product-grid">
+            {products.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        </div>
+      )
+    }
+    ```
+
+    **Rules**:
+    - No direct API calls
+    - No business logic
+    - Use hooks for all data and logic
+    - Import UI components from `shared/`
+  </Accordion>
+</AccordionGroup>
+
+## Dependency Direction
+
+<Note type="warning">
+  Dependencies always point **inward** toward the domain.
+</Note>
+
+```
+┌─────────────────────────────────────────┐
+│                                         │
+│                 Domain                  │  ← Zero dependencies
+│                (Types)                  │
+│                                         │
+└───────────────▲─────────────────────────┘
+                │
+                │ Depends on
+                │
+┌───────────────┴─────────────────────────┐
+│                                         │
+│           Infrastructure                │
+│     (API, Stack, Store)                 │
+│                                         │
+└───────────────▲─────────────────────────┘
+                │
+                │ Depends on
+                │
+┌───────────────┴─────────────────────────┐
+│                                         │
+│            Application                  │
+│             (Services)                  │
+│                                         │
+└───────────────▲─────────────────────────┘
+                │
+                │ Depends on
+                │
+┌───────────────┴─────────────────────────┐
+│                                         │
+│          Hooks + Views                  │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+**Benefits**:
+- Domain is independent and can be tested in isolation
+- Infrastructure can be swapped (replace TanStack Query with SWR, etc.)
+- Views don't know about data fetching details
+- Changes in outer layers don't affect inner layers
+
+## Adapter Pattern in Detail
+
+Adapters are critical for maintaining layer independence:
+
+```typescript
+// External API contract (unstable)
+interface ProductApiResponse {
+  product_id: number
+  product_name: string
+  unit_price: number
+}
+
+// Internal domain type (stable)
+interface Product {
+  id: number
+  name: string
+  price: number
+}
+
+// Adapter isolates external changes
+const toProduct = (raw: ProductApiResponse): Product => ({
+  id: raw.product_id,
+  name: raw.product_name,
+  price: raw.unit_price,
+})
+```
+
+**If API changes**:
+```typescript
+// API now returns "prod_id" instead of "product_id"
+interface ProductApiResponse {
+  prod_id: number  // ← Changed
+  product_name: string
+  unit_price: number
+}
+
+// Only adapter needs to change
+const toProduct = (raw: ProductApiResponse): Product => ({
+  id: raw.prod_id,  // ← Single point of change
+  name: raw.product_name,
+  price: raw.unit_price,
+})
+
+// Domain, services, hooks, and views are unaffected
+```
+
+## Complete Example: Product Feature
+
+Putting it all together:
+
+```typescript
+// 1. Domain
+export interface Product { id: number; name: string; price: number }
+
+// 2. API with adapter
+const toProduct = (raw: ApiResponse): Product => ({ ...transform })
+export const productApi = {
+  fetchProducts: () => httpClient.get('/products').then(r => r.data.map(toProduct))
+}
+
+// 3. Stack (optional caching)
+export const useProductsQuery = () => useQuery({
+  queryKey: ['products'],
+  queryFn: productApi.fetchProducts,
+})
+
+// 4. Store (optional global state)
+export const useProductStore = create<State>()(...)
+
+// 5. Service (orchestration)
+export class ProductService {
+  async fetchProducts() {
+    const products = await productApi.fetchProducts()
+    useProductStore.getState().setProducts(products)
+    return products
+  }
+}
+
+// 6. Hook (UI logic)
+export const useProducts = () => {
+  const products = useProductStore(s => s.products)
+  const [loading, setLoading] = useState(false)
+  
+  useEffect(() => {
+    setLoading(true)
+    new ProductService().fetchProducts().finally(() => setLoading(false))
+  }, [])
+  
+  return { products, loading }
+}
+
+// 7. View (rendering)
+export const Products = () => {
+  const { products, loading } = useProducts()
+  return <div>{loading ? 'Loading...' : products.map(...)}</div>
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture Overview" icon="sitemap" href="/architecture/overview">
+    Review core architectural principles
+  </Card>
+  <Card title="File Structure" icon="folder-tree" href="/architecture/file-structure">
+    Understand directory organization
+  </Card>
+</CardGroup>

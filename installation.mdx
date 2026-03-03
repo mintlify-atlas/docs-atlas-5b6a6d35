@@ -1,0 +1,557 @@
+---
+title: Installation
+description: Comprehensive installation guide with environment setup, configuration, and deployment
+---
+
+# Installation Guide
+
+This guide covers everything you need to install, configure, and deploy your React + TanStack Router application.
+
+## System Requirements
+
+Before installing, ensure your system meets these requirements:
+
+### Runtime
+
+<CardGroup cols={2}>
+  <Card title="Bun (Recommended)" icon="leaf">
+    Version 1.0 or higher for the fastest development experience
+  </Card>
+  <Card title="Node.js (Alternative)" icon="node">
+    Version 18.0 or higher with npm 9+, yarn 1.22+, or pnpm 8+
+  </Card>
+</CardGroup>
+
+### Operating System
+
+- macOS (Intel or Apple Silicon)
+- Linux (Ubuntu 20.04+, Debian 11+, or equivalent)
+- Windows 10/11 with WSL2 (recommended) or native
+
+### Development Tools
+
+- Git 2.0+
+- Modern code editor (VS Code, WebStorm, etc.)
+- Modern browser with DevTools (Chrome, Firefox, Edge)
+
+## Installation Steps
+
+<Steps>
+  <Step title="Install Runtime">
+    Choose and install your preferred JavaScript runtime:
+
+    ### Bun (Recommended)
+
+    Install Bun for the fastest development experience:
+
+    <CodeGroup>
+      ```bash macOS/Linux
+      curl -fsSL https://bun.sh/install | bash
+      ```
+
+      ```bash Windows (PowerShell)
+      powershell -c "irm bun.sh/install.ps1 | iex"
+      ```
+    </CodeGroup>
+
+    Verify installation:
+
+    ```bash
+    bun --version
+    ```
+
+    ### Node.js (Alternative)
+
+    Download and install Node.js from [nodejs.org](https://nodejs.org) or use a version manager:
+
+    <CodeGroup>
+      ```bash nvm (macOS/Linux)
+      nvm install 20
+      nvm use 20
+      ```
+
+      ```bash volta
+      volta install node@20
+      ```
+    </CodeGroup>
+
+    Verify installation:
+
+    ```bash
+    node --version
+    npm --version
+    ```
+  </Step>
+
+  <Step title="Clone Repository">
+    Clone the boilerplate repository:
+
+    ```bash
+    git clone <repository-url> my-app
+    cd my-app
+    ```
+
+    <Tip>
+    Replace `my-app` with your project name. This will be your working directory.
+    </Tip>
+  </Step>
+
+  <Step title="Install Dependencies">
+    Install project dependencies with your chosen package manager:
+
+    <CodeGroup>
+      ```bash bun
+      bun install
+      ```
+
+      ```bash npm
+      npm install
+      ```
+
+      ```bash yarn
+      yarn install
+      ```
+
+      ```bash pnpm
+      pnpm install
+      ```
+    </CodeGroup>
+
+    This will install all dependencies from `package.json`:
+
+    **Core Dependencies:**
+    - `react` ^19.2.0 - React library
+    - `react-dom` ^19.2.0 - React DOM renderer
+    - `@tanstack/react-router` ^1.161.4 - Type-safe routing
+
+    **Development Dependencies:**
+    - `vite` ^7.3.1 - Build tool and dev server
+    - `typescript` ~5.9.3 - Type checking
+    - `@vitejs/plugin-react-swc` ^4.2.2 - Fast React refresh
+    - `@tanstack/react-router-devtools` ^1.162.1 - Router debugging
+    - `eslint` ^9.39.1 - Code linting
+
+    <Note>
+    The `^` symbol in version numbers means "compatible with". npm will install the latest minor/patch version.
+    </Note>
+  </Step>
+
+  <Step title="Environment Configuration">
+    Create your environment configuration file:
+
+    ```bash
+    cp .env.example .env.dev
+    ```
+
+    The `.env.example` file contains these default variables:
+
+    ```bash
+    VITE_PUBLIC_URL=/
+    VITE_TANKSTACK_ROUTER_TOOLS=true
+    ```
+
+    Edit `.env.dev` to customize your configuration:
+
+    ```bash
+    # Base URL for your application
+    # Use / for root or /subpath for subdirectories
+    VITE_PUBLIC_URL=/
+
+    # Enable/disable TanStack Router devtools
+    # Set to false in production
+    VITE_TANKSTACK_ROUTER_TOOLS=true
+
+    # Optional: API endpoint (add as needed)
+    # VITE_API_URL=http://localhost:3000/api
+    ```
+
+    <Tip>
+    All environment variables must be prefixed with `VITE_` to be exposed to your application code. This is a Vite security feature.
+    </Tip>
+  </Step>
+
+  <Step title="Verify Installation">
+    Verify everything is working by starting the dev server:
+
+    <CodeGroup>
+      ```bash bun
+      bun run dev --mode dev
+      ```
+
+      ```bash npm
+      npm run dev -- --mode dev
+      ```
+    </CodeGroup>
+
+    You should see output similar to:
+
+    ```
+    VITE v7.3.1  ready in 342 ms
+
+    ➜  Local:   http://localhost:5173/
+    ➜  Network: http://192.168.1.100:5173/
+    ➜  press h + enter to show help
+    ```
+
+    Open `http://localhost:5173` in your browser. You should see your application running.
+
+    <Tip>
+    The dev server listens on `0.0.0.0` by default, making it accessible from other devices on your local network.
+    </Tip>
+  </Step>
+</Steps>
+
+## Environment Configuration
+
+### Environment Files
+
+Create different environment files for different deployment environments:
+
+```bash
+.env.dev          # Development (local)
+.env.staging      # Staging environment
+.env.production   # Production environment
+```
+
+Load the appropriate file with the `--mode` flag:
+
+```bash
+bun run dev --mode dev        # Loads .env.dev
+bun run dev --mode staging    # Loads .env.staging
+bun run build --mode production  # Loads .env.production
+```
+
+### Available Environment Variables
+
+#### VITE_PUBLIC_URL
+
+Sets the base path for your application:
+
+```bash
+# Root path (default)
+VITE_PUBLIC_URL=/
+
+# Subdirectory deployment
+VITE_PUBLIC_URL=/my-app
+
+# GitHub Pages with custom domain
+VITE_PUBLIC_URL=https://example.com
+```
+
+This is configured in `vite.config.ts`:
+
+```typescript
+import { defineConfig, loadEnv } from 'vite'
+import react from '@vitejs/plugin-react-swc'
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd());
+  return {
+    base: env.VITE_PUBLIC_URL || '/',
+    plugins: [react()],
+    build: {
+      chunkSizeWarningLimit: 1024 * 1024,
+    },
+  }
+});
+```
+
+<Note>
+When deploying to a subdirectory, ensure `VITE_PUBLIC_URL` matches your hosting path.
+</Note>
+
+#### VITE_TANKSTACK_ROUTER_TOOLS
+
+Enables or disables TanStack Router devtools:
+
+```bash
+# Enable devtools (development)
+VITE_TANKSTACK_ROUTER_TOOLS=true
+
+# Disable devtools (production)
+VITE_TANKSTACK_ROUTER_TOOLS=false
+```
+
+<Tip>
+Always disable devtools in production to reduce bundle size and improve performance.
+</Tip>
+
+### Accessing Environment Variables
+
+Access environment variables in your code using `import.meta.env`:
+
+```typescript
+// Access built-in Vite variables
+const isDev = import.meta.env.DEV
+const isProd = import.meta.env.PROD
+const mode = import.meta.env.MODE
+
+// Access custom variables (must be prefixed with VITE_)
+const baseUrl = import.meta.env.VITE_PUBLIC_URL
+const apiUrl = import.meta.env.VITE_API_URL
+const devtools = import.meta.env.VITE_TANKSTACK_ROUTER_TOOLS === 'true'
+```
+
+## TypeScript Configuration
+
+The boilerplate uses TypeScript for type safety. Configuration is split across multiple files:
+
+### tsconfig.json (Root)
+
+```json
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}
+```
+
+This is a project references setup that separates:
+- `tsconfig.app.json` - Application code configuration
+- `tsconfig.node.json` - Build tools configuration (Vite)
+
+<Note>
+Project references improve build performance and enable better IDE support for monorepos and complex projects.
+</Note>
+
+## Build Configuration
+
+### Development Build
+
+Run the development server with hot module replacement:
+
+<CodeGroup>
+  ```bash bun
+  bun run dev --mode dev
+  ```
+
+  ```bash npm
+  npm run dev -- --mode dev
+  ```
+</CodeGroup>
+
+Features:
+- Instant hot module replacement
+- Source maps for debugging
+- TanStack Router devtools
+- Error overlay in browser
+
+### Production Build
+
+Create an optimized production build:
+
+<CodeGroup>
+  ```bash bun
+  bun run build
+  ```
+
+  ```bash npm
+  npm run build
+  ```
+</CodeGroup>
+
+This runs:
+1. `tsc -b` - TypeScript compiler in build mode
+2. `vite build` - Vite production build
+
+Output directory: `dist/`
+
+Optimizations:
+- Code minification and tree-shaking
+- CSS optimization and extraction
+- Asset hashing for cache busting
+- Source maps (optional)
+- Code splitting by route
+
+<Tip>
+The build process will fail if there are TypeScript errors. Fix all type errors before building.
+</Tip>
+
+### Preview Production Build
+
+Test your production build locally:
+
+<CodeGroup>
+  ```bash bun
+  bun run preview
+  ```
+
+  ```bash npm
+  npm run preview
+  ```
+</CodeGroup>
+
+This serves the `dist/` directory on a local server, allowing you to test the production build before deploying.
+
+## Hash Router (Alternative)
+
+By default, the boilerplate uses browser history routing (`/path`). If you need to deploy to environments that don't support history API (e.g., file protocol or certain CDNs), use hash routing (`/#/path`).
+
+To enable hash routing, edit `src/core/router/tankStackRouter.tsx`:
+
+```typescript
+import { createHashHistory } from '@tanstack/react-router'
+
+// Uncomment these lines:
+const hashHistory = createHashHistory()
+const router = createRouter({ routeTree, history: hashHistory })
+
+// Comment out the default:
+// const router = createRouter({ routeTree })
+```
+
+<Note>
+Hash routing is useful when deploying to static hosting that doesn't support server-side routing configuration.
+</Note>
+
+## Deployment
+
+### Building for Production
+
+<Steps>
+  <Step title="Create production environment file">
+    ```bash
+    cp .env.example .env.production
+    ```
+
+    Configure production variables:
+
+    ```bash
+    VITE_PUBLIC_URL=https://yourdomain.com
+    VITE_TANKSTACK_ROUTER_TOOLS=false
+    VITE_API_URL=https://api.yourdomain.com
+    ```
+  </Step>
+
+  <Step title="Build the application">
+    <CodeGroup>
+      ```bash bun
+      bun run build --mode production
+      ```
+
+      ```bash npm
+      npm run build -- --mode production
+      ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Test the build">
+    ```bash
+    bun run preview
+    ```
+
+    Verify everything works correctly before deploying.
+  </Step>
+
+  <Step title="Deploy the dist/ directory">
+    Upload the contents of `dist/` to your hosting provider.
+  </Step>
+</Steps>
+
+### Deployment Platforms
+
+<CardGroup cols={2}>
+  <Card title="Vercel" icon="triangle">
+    Connect your Git repository and deploy automatically with zero configuration.
+  </Card>
+  <Card title="Netlify" icon="diamond">
+    Drag and drop the `dist/` folder or connect your Git repository.
+  </Card>
+  <Card title="AWS S3 + CloudFront" icon="aws">
+    Upload to S3 and serve through CloudFront for global CDN distribution.
+  </Card>
+  <Card title="GitHub Pages" icon="github">
+    Deploy to GitHub Pages with GitHub Actions automation.
+  </Card>
+</CardGroup>
+
+### Server Configuration
+
+For browser history routing (not hash routing), configure your server to redirect all requests to `index.html`:
+
+**Nginx:**
+```nginx
+location / {
+  try_files $uri $uri/ /index.html;
+}
+```
+
+**Apache (.htaccess):**
+```apache
+RewriteEngine On
+RewriteBase /
+RewriteRule ^index\.html$ - [L]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule . /index.html [L]
+```
+
+<Tip>
+If you can't configure server-side routing, use hash routing instead.
+</Tip>
+
+## Troubleshooting
+
+### Common Issues
+
+#### Port Already in Use
+
+If port 5173 is already in use:
+
+```bash
+# Use a different port
+bun run dev -- --port 3000
+```
+
+#### Module Not Found Errors
+
+Delete and reinstall dependencies:
+
+```bash
+rm -rf node_modules
+rm bun.lockb  # or package-lock.json, yarn.lock, pnpm-lock.yaml
+bun install
+```
+
+#### TypeScript Errors
+
+Regenerate TypeScript types:
+
+```bash
+# Clear TypeScript cache
+rm -rf node_modules/.vite
+
+# Restart dev server
+bun run dev --mode dev
+```
+
+#### Environment Variables Not Loading
+
+Ensure:
+1. Variables are prefixed with `VITE_`
+2. The correct `.env` file exists (`.env.dev`, `.env.production`)
+3. You're using the `--mode` flag correctly
+4. You've restarted the dev server after changing env files
+
+<Note>
+Environment variables are embedded at build time. Changes require restarting the dev server or rebuilding.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture Guide" icon="sitemap" href="/architecture/overview">
+    Learn about the layered architecture and design patterns
+  </Card>
+  <Card title="Create Your First Feature" icon="plus" href="/guides/adding-features">
+    Build a new feature module following the established patterns
+  </Card>
+  <Card title="Routing" icon="route" href="/architecture/routing">
+    Master TanStack Router with type-safe navigation and data loading
+  </Card>
+  <Card title="State Management" icon="database" href="/guides/state-management">
+    Understand the store philosophy and when to use global state
+  </Card>
+</CardGroup>

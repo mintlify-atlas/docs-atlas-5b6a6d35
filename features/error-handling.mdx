@@ -1,0 +1,529 @@
+---
+title: Error Handling
+description: Managing errors, 404 pages, and not-found redirects in TanStack Router
+---
+
+## Overview
+
+TanStack Router provides built-in error handling with `errorComponent` and `notFoundComponent` options. The boilerplate uses these to create a consistent error experience.
+
+<Tip>
+  Error boundaries can be defined at any route level: root, layout, or page. Errors bubble up to the nearest error boundary.
+</Tip>
+
+## Error404 Component
+
+The global error component handles unexpected errors and 404s:
+
+```tsx
+import { useRouterState } from '@tanstack/react-router'
+
+/**
+ * Equivalent of Error404 in base-react.
+ * Used as `errorComponent` on routes and the root route.
+ */
+export const Error404 = () => {
+  const routerState = useRouterState()
+  
+  const error = routerState.matches.at(-1)?.error as Error | undefined
+
+  return (
+    <div id="error-page">
+      <h1>Oops!</h1>
+      <p>Sorry, an unexpected error has occurred.</p>
+      {error && (
+        <p>
+          <i>{error.message}</i>
+        </p>
+      )}
+    </div>
+  )
+}
+```
+
+Source: `~/workspace/source/src/features/error404/error404.tsx:7`
+
+**Key features:**
+- Uses `useRouterState()` to access route error information
+- Extracts error from the last matched route
+- Displays error message if available
+- Simple, user-friendly error UI
+
+## Applying Error Components
+
+### Root-Level Error Handling
+
+Set a default error component for the entire app:
+
+```tsx
+import { createRootRoute } from '@tanstack/react-router'
+import { Error404 } from '../features/error404/error404'
+
+const rootRoute = createRootRoute({
+  component: RootLayout,
+  errorComponent: Error404, // Catches all unhandled errors
+})
+```
+
+This catches any error that isn't handled by a more specific error boundary.
+
+### Layout-Level Error Handling
+
+Provide feature-specific error handling:
+
+```tsx
+import { createRoute } from '@tanstack/react-router'
+import { LandingLayout } from '../layout/layout'
+import { Error404 } from '../../error404/error404'
+
+export const landingRouter = (parentRoute: AnyRoute) => {
+  const landingLayoutRoute = createRoute({
+    getParentRoute: () => parentRoute,
+    id: 'landing',
+    component: LandingLayout,
+    errorComponent: Error404, // Handles errors in landing feature
+  })
+
+  return landingLayoutRoute.addChildren(childRoutes)
+}
+```
+
+Source: `~/workspace/source/src/features/landing/router/router.tsx:13`
+
+### Page-Level Error Handling
+
+Every child route also specifies error handling:
+
+```tsx
+const childRoutes = routes.map(({ path, component }) => {
+  return createRoute({
+    getParentRoute: () => landingLayoutRoute,
+    path: path,
+    component: component,
+    errorComponent: Error404, // Page-specific error handling
+  })
+})
+```
+
+Source: `~/workspace/source/src/features/landing/router/router.tsx:29`
+
+## Not Found Redirects
+
+The boilerplate uses `createNotFoundRedirect()` to redirect invalid paths within a feature to a default page:
+
+```tsx
+import { useEffect } from 'react'
+import { useNavigate } from '@tanstack/react-router'
+
+export const createNotFoundRedirect = (to: string) => {
+  const NotFoundRedirect = () => {
+    const navigate = useNavigate()
+
+    useEffect(() => {
+      navigate({ to, replace: true })
+    }, [navigate])
+    
+    return null
+  }
+
+  NotFoundRedirect.displayName = `NotFoundRedirect(${to})`
+
+  return NotFoundRedirect
+}
+```
+
+Source: `~/workspace/source/src/shared/helpers/NotFoundRedirect.tsx:4`
+
+### Applying Not Found Redirects
+
+Set a default redirect for unknown paths in a feature:
+
+```tsx
+import { createRoute } from '@tanstack/react-router'
+import { createNotFoundRedirect } from '../../../shared/helpers/NotFoundRedirect'
+import { ROUTES } from '../../../shared/constants/routes'
+
+const authLayoutRoute = createRoute({
+  getParentRoute: () => parentRoute,
+  id: 'auth',
+  component: AuthLayout,
+  beforeLoad: authGuard,
+  errorComponent: Error404,
+  notFoundComponent: createNotFoundRedirect(ROUTES.auth.login.fullPath),
+})
+```
+
+Source: `~/workspace/source/src/features/auth/router/router.tsx:14`
+
+**Behavior:**
+- `/login` → renders login page
+- `/register` → renders register page
+- `/auth/invalid-page` → redirects to `/login`
+
+<CodeGroup>
+```tsx Landing Feature (Home)
+const landingLayoutRoute = createRoute({
+  getParentRoute: () => parentRoute,
+  id: 'landing',
+  component: LandingLayout,
+  errorComponent: Error404,
+  notFoundComponent: createNotFoundRedirect(ROUTES.landing.home.fullPath),
+})
+```
+
+```tsx Backoffice Feature (Dashboard)
+const backofficeLayoutRoute = createRoute({
+  getParentRoute: () => parentRoute,
+  path: ROUTES.backoffice.backoffice.path,
+  component: BackofficeLayout,
+  beforeLoad: backofficeGuard,
+  errorComponent: Error404,
+  notFoundComponent: createNotFoundRedirect(ROUTES.backoffice.dashboard.fullPath),
+})
+```
+</CodeGroup>
+
+Source: `~/workspace/source/src/features/backoffice/router/router.tsx:15`
+
+## Error Boundary Hierarchy
+
+Errors bubble up from the most specific to the most general:
+
+```
+1. Page errorComponent        ← Catches page-specific errors
+   ↓ (if not handled)
+2. Layout errorComponent       ← Catches feature-level errors
+   ↓ (if not handled)
+3. Root errorComponent         ← Catches global errors
+```
+
+Example:
+
+```tsx
+// Root: global fallback
+const rootRoute = createRootRoute({
+  errorComponent: GlobalError,
+})
+
+// Layout: feature-specific errors
+const backofficeLayout = createRoute({
+  component: BackofficeLayout,
+  errorComponent: BackofficeError,
+})
+
+// Page: page-specific errors
+const usersPage = createRoute({
+  component: UsersPage,
+  errorComponent: UsersError,
+})
+```
+
+If `UsersPage` throws an error:
+- `UsersError` renders if defined
+- Otherwise, `BackofficeError` renders
+- Otherwise, `GlobalError` renders
+
+## Custom Error Components
+
+### Feature-Specific Error Page
+
+```tsx
+import { useRouterState } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
+
+export const BackofficeError = () => {
+  const routerState = useRouterState()
+  const error = routerState.matches.at(-1)?.error as Error | undefined
+
+  return (
+    <div className="backoffice-error">
+      <h1>Something went wrong</h1>
+      <p>We encountered an error in the backoffice.</p>
+      {error && <p className="error-message">{error.message}</p>}
+      <Link to="/backoffice/dashboard">Return to Dashboard</Link>
+    </div>
+  )
+}
+```
+
+### Error with Retry
+
+```tsx
+import { useRouter } from '@tanstack/react-router'
+
+export const ErrorWithRetry = () => {
+  const router = useRouter()
+
+  const handleRetry = () => {
+    router.invalidate() // Retry the route
+  }
+
+  return (
+    <div>
+      <h1>Something went wrong</h1>
+      <button onClick={handleRetry}>Try Again</button>
+    </div>
+  )
+}
+```
+
+### Error with Details Toggle
+
+```tsx
+import { useState } from 'react'
+import { useRouterState } from '@tanstack/react-router'
+
+export const DetailedError = () => {
+  const [showDetails, setShowDetails] = useState(false)
+  const routerState = useRouterState()
+  const error = routerState.matches.at(-1)?.error as Error | undefined
+
+  return (
+    <div>
+      <h1>An error occurred</h1>
+      <p>We're working to fix this issue.</p>
+      
+      {error && (
+        <>
+          <button onClick={() => setShowDetails(!showDetails)}>
+            {showDetails ? 'Hide' : 'Show'} Details
+          </button>
+          
+          {showDetails && (
+            <pre className="error-details">
+              {error.message}
+              {error.stack}
+            </pre>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+```
+
+## Loader Errors
+
+TanStack Router loaders can throw errors that are caught by error boundaries:
+
+```tsx
+import { createRoute } from '@tanstack/react-router'
+
+const productRoute = createRoute({
+  path: '/product/$id',
+  component: ProductPage,
+  errorComponent: Error404,
+  loader: async ({ params }) => {
+    const product = await fetchProduct(params.id)
+    
+    if (!product) {
+      throw new Error('Product not found')
+    }
+    
+    return { product }
+  },
+})
+```
+
+If `fetchProduct` throws or the product doesn't exist, `Error404` renders instead of `ProductPage`.
+
+## beforeLoad Errors
+
+Guards that throw errors (except redirects) are also caught:
+
+```tsx
+export const permissionGuard = () => {
+  const hasPermission = checkPermission()
+  
+  if (!hasPermission) {
+    throw new Error('Insufficient permissions')
+  }
+}
+
+const adminRoute = createRoute({
+  path: '/admin',
+  component: AdminPage,
+  beforeLoad: permissionGuard,
+  errorComponent: Error404, // Catches permission errors
+})
+```
+
+<Warning>
+  Use `throw redirect()` for navigation, not regular errors. Only throw regular errors when you want to trigger an error boundary.
+</Warning>
+
+## Development vs Production Errors
+
+Show detailed errors in development, generic messages in production:
+
+```tsx
+import { useRouterState } from '@tanstack/react-router'
+
+export const Error404 = () => {
+  const routerState = useRouterState()
+  const error = routerState.matches.at(-1)?.error as Error | undefined
+  const isDev = import.meta.env.DEV
+
+  return (
+    <div id="error-page">
+      <h1>Oops!</h1>
+      <p>Sorry, an unexpected error has occurred.</p>
+      
+      {isDev && error && (
+        <details>
+          <summary>Error Details (dev only)</summary>
+          <pre>{error.message}</pre>
+          <pre>{error.stack}</pre>
+        </details>
+      )}
+      
+      {!isDev && <p>Please contact support if this issue persists.</p>}
+    </div>
+  )
+}
+```
+
+## Error Logging
+
+Integrate error logging services in your error components:
+
+```tsx
+import { useEffect } from 'react'
+import { useRouterState } from '@tanstack/react-router'
+import * as Sentry from '@sentry/react'
+
+export const Error404 = () => {
+  const routerState = useRouterState()
+  const error = routerState.matches.at(-1)?.error as Error | undefined
+
+  useEffect(() => {
+    if (error) {
+      Sentry.captureException(error)
+    }
+  }, [error])
+
+  return (
+    <div id="error-page">
+      <h1>Oops!</h1>
+      <p>Sorry, an unexpected error has occurred.</p>
+      {error && <p><i>{error.message}</i></p>}
+    </div>
+  )
+}
+```
+
+## 404 vs Error States
+
+**404 (Not Found):**
+- User navigates to a non-existent route
+- Handle with `notFoundComponent` or redirect
+- Should be user-friendly and offer navigation options
+
+**Error State:**
+- Something broke during rendering or data loading
+- Handle with `errorComponent`
+- May include technical details in development
+
+```tsx
+// 404: Route doesn't exist
+/users/999999 → notFoundComponent or createNotFoundRedirect
+
+// Error: Something crashed
+/users/123 → loader fails → errorComponent
+```
+
+## Best Practices
+
+1. **Always provide errorComponent**: At least at the root level
+2. **Use specific error pages**: Different messages for different features
+3. **Redirect invalid paths**: Use `createNotFoundRedirect()` for better UX
+4. **Log errors**: Integrate Sentry, LogRocket, or similar services
+5. **Show user-friendly messages**: Avoid technical jargon in production
+6. **Provide recovery options**: Links to home, retry buttons, contact support
+7. **Test error states**: Intentionally throw errors to verify error boundaries work
+8. **Handle async errors**: Loaders and guards can fail asynchronously
+
+## Testing Error Boundaries
+
+```tsx
+import { describe, it, expect } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { Error404 } from './error404'
+
+// Mock useRouterState
+vi.mock('@tanstack/react-router', () => ({
+  useRouterState: () => ({
+    matches: [
+      { error: new Error('Test error message') }
+    ]
+  })
+}))
+
+describe('Error404', () => {
+  it('displays error message', () => {
+    render(<Error404 />)
+    expect(screen.getByText(/Test error message/i)).toBeInTheDocument()
+  })
+  
+  it('shows fallback when no error', () => {
+    // Mock with no error
+    vi.mocked(useRouterState).mockReturnValue({
+      matches: [{}]
+    })
+    
+    render(<Error404 />)
+    expect(screen.getByText(/unexpected error/i)).toBeInTheDocument()
+  })
+})
+```
+
+## Common Error Scenarios
+
+### API Call Fails
+
+```tsx
+const usersRoute = createRoute({
+  path: '/users',
+  component: UsersPage,
+  errorComponent: Error404,
+  loader: async () => {
+    try {
+      return await fetchUsers()
+    } catch (error) {
+      throw new Error('Failed to load users. Please try again later.')
+    }
+  },
+})
+```
+
+### Authentication Token Expired
+
+```tsx
+export const authGuard = () => {
+  const isAuth = checkAuthenticated()
+  
+  if (!isAuth) {
+    // Clear stale data
+    localStorage.clear()
+    throw redirect({ to: '/login' })
+  }
+}
+```
+
+### Feature Flag Disabled
+
+```tsx
+export const featureGuard = (featureName: string) => () => {
+  const isEnabled = checkFeatureFlag(featureName)
+  
+  if (!isEnabled) {
+    throw redirect({ to: '/', search: { message: 'Feature not available' } })
+  }
+}
+```
+
+## Next Steps
+
+- Learn about [Route Guards](/features/guards) for handling authentication errors
+- See [Layout Components](/features/layouts) for layout-level error boundaries
+- Read [Feature Modules](/features/feature-modules) for the complete feature structure

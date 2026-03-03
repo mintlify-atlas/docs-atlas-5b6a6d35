@@ -1,0 +1,114 @@
+---
+title: 'Providers'
+description: 'Root providers component for application context'
+---
+
+## Providers
+
+A wrapper component that composes all application-level providers and context. This component sits at the root of the React tree and wraps the router.
+
+### Signature
+
+```tsx
+function Providers({ children }: Props): JSX.Element
+```
+
+### Parameters
+
+<ParamField path="children" type="React.ReactNode" required>
+  The child components to render within the provider tree, typically the router component
+</ParamField>
+
+### Usage
+
+```tsx
+import { Providers } from './core/providers/providers'
+import { TankStackRouter } from './core/router/tankStackRouter'
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <Providers>
+      <TankStackRouter />
+    </Providers>
+  </StrictMode>
+)
+```
+
+### Provider Composition Pattern
+
+The `Providers` component follows a composition pattern that makes it easy to add new context providers as your application grows:
+
+```tsx
+export const Providers = ({ children }: Props) => {
+  return (
+    <ThemeProvider>
+      <AuthProvider>
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
+      </AuthProvider>
+    </ThemeProvider>
+  )
+}
+```
+
+### Common Providers to Add
+
+As you build your application, you might add providers for:
+
+- **Theme/UI**: Theme context, CSS-in-JS providers (styled-components, emotion)
+- **State Management**: Redux, Zustand, or other state management libraries
+- **Data Fetching**: React Query, SWR, Apollo Client
+- **Authentication**: Auth context with user session state
+- **Internationalization**: i18n providers for multi-language support
+- **Toast/Notifications**: Toast notification system context
+- **Modal Management**: Global modal state management
+
+### Example with Multiple Providers
+
+```tsx
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { ThemeProvider } from './theme/ThemeProvider'
+import { AuthProvider } from './auth/AuthProvider'
+
+const queryClient = new QueryClient()
+
+type Props = {
+  children: React.ReactNode
+}
+
+export const Providers = ({ children }: Props) => {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <AuthProvider>
+          {children}
+        </AuthProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
+  )
+}
+```
+
+### Type Definitions
+
+```tsx
+type Props = {
+  children: React.ReactNode
+}
+```
+
+### Design Philosophy
+
+The `Providers` component centralizes provider composition, making it easier to:
+
+1. **Maintain Provider Order**: Some providers depend on others; centralized composition ensures correct ordering
+2. **Avoid Wrapper Hell**: Keeps the main entry point (`App.tsx`) clean
+3. **Test in Isolation**: Easily mock or replace providers during testing
+4. **Reuse Across Environments**: Same provider setup for app, Storybook, and tests
+
+## Source Files
+
+- `~/workspace/source/src/core/providers/providers.tsx`

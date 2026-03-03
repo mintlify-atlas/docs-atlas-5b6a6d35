@@ -1,0 +1,665 @@
+---
+title: TanStack Router Implementation
+description: Detailed guide to the modular router architecture using the Builder pattern
+---
+
+## Router Architecture
+
+The routing system is built on **TanStack Router** with a modular, composable architecture. Each feature builds its own route tree independently, and the main router assembles them using the **Builder pattern**.
+
+## Core Concepts
+
+<AccordionGroup>
+  <Accordion title="Singleton Router Instance">
+    The router is created **once** in `core/router/tankStackRouter.tsx` and exported as a component:
+
+    ```tsx
+    // src/core/router/tankStackRouter.tsx:37-38
+    const router = createRouter({ routeTree })
+    // const router = createRouter({ routeTree, history: hashHistory })
+    ```
+
+    This single instance:
+    - Maintains navigation state
+    - Shares route configuration
+    - Enables route caching
+    - Supports devtools integration
+
+    ```tsx
+    // src/core/router/tankStackRouter.tsx:40-50
+    export const TankStackRouter = () => {
+      return (
+        <>
+          <RouterProvider router={router} />
+          <TanStackRouterDevtools
+            router={router}
+            initialIsOpen={false}
+          />
+        </>
+      )
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Root Route Configuration">
+    The root route defines global configuration for all child routes:
+
+    ```tsx
+    // src/core/router/tankStackRouter.tsx:18-28
+    const rootRoute = createRootRoute({
+
+      component: () => (
+        <Suspense fallback={<div>Loading…</div>}>
+          <Outlet />
+        </Suspense>
+      ),
+      errorComponent: Error404,
+
+      notFoundComponent: createNotFoundRedirect(baseRoute),
+    })
+    ```
+
+    **Key features**:
+    - `component`: Wraps all routes with Suspense for lazy loading
+    - `errorComponent`: Global error boundary
+    - `notFoundComponent`: 404 handler with smart redirects
+  </Accordion>
+
+  <Accordion title="Feature Router Composition">
+    Feature routers are **factory functions** that receive the parent route and return a configured route tree:
+
+    ```typescript
+    type RouterFactory = (parentRoute: AnyRoute) => AnyRoute
+    ```
+
+    Main router composes all features:
+
+    ```tsx
+    // src/core/router/tankStackRouter.tsx:30-35
+    const routeTree = rootRoute.addChildren([
+      ...baseRedirectRouter(baseRoute, rootRoute),
+      landingRouter(rootRoute),
+      authRouter(rootRoute),
+      backofficeRouter(rootRoute),
+    ])
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Builder Pattern Implementation
+
+### Base Redirect Router
+
+The simplest router builder handles root path redirection:
+
+```tsx
+// src/core/router/baseRedirectRouter.tsx:1-14
+import { createRoute, redirect } from '@tanstack/react-router'
+import type { AnyRoute } from '@tanstack/react-router'
+
+export const baseRedirectRouter = (baseRoute: string, parentRoute: AnyRoute): AnyRoute[] => {
+
+  const indexRedirectRoute = createRoute({
+    getParentRoute: () => parentRoute,
+    path: '/',
+    beforeLoad: () => { throw redirect({ to: baseRoute }) },
+  })
+
+  return [indexRedirectRoute] as const
+}
+```
+
+**Usage**:
+```typescript
+// Redirect '/' to '/login'
+const baseRoute = ROUTES.auth.login.fullPath
+...baseRedirectRouter(baseRoute, rootRoute)
+```
+
+<Note>
+  The `beforeLoad` hook throws a redirect exception, which TanStack Router catches and handles.
+</Note>
+
+### Feature Router Builder
+
+Each feature follows a consistent builder pattern:
+
+<Tabs>
+  <Tab title="1. Define Routes">
+    Create a configuration array in `routes.ts`:
+
+    ```typescript
+    // src/features/landing/router/routes.ts:15-37
+    export const routes = [
+      {
+        path: landing.home.path,
+        component: Home,
+        metaData: index,
+      },
+      {
+        path: landing.product.path,
+        component: Product,
+        loader: productLoader,  // Optional data loader
+        metaData: product,
+      },
+      {
+        path: landing.contact.path,
+        component: Contact,
+        metaData: contact,
+      },
+      {
+        path: landing.about.path,
+        component: About,
+        metaData: about,
+      },
+    ] as const
+    ```
+
+    **Route configuration includes**:
+    - `path`: Route pattern (supports params like `$id`)
+    - `component`: Page component (can be lazy-loaded)
+    - `loader`: Optional TanStack Router loader for data prefetching
+    - `metaData`: Page title, description, etc.
+  </Tab>
+
+  <Tab title="2. Create Layout Route">
+    Build the feature's layout route:
+
+    ```tsx
+    // src/features/landing/router/router.tsx:13-19
+    const landingLayoutRoute = createRoute({
+      getParentRoute: () => parentRoute,
+      id: 'landing',
+      component: LandingLayout,
+      errorComponent: Error404,
+      notFoundComponent: createNotFoundRedirect(ROUTES.landing.home.fullPath),
+    })
+    ```
+
+    **Configuration options**:
+    - `getParentRoute`: Returns parent (enables nesting)
+    - `id`: Optional route ID for referencing
+    - `component`: Layout component wrapping all child routes
+    - `errorComponent`: Error boundary for this subtree
+    - `notFoundComponent`: 404 handler with feature-specific redirect
+  </Tab>
+
+  <Tab title="3. Map Child Routes">
+    Transform route config into TanStack routes:
+
+    ```tsx
+    // src/features/landing/router/router.tsx:21-40
+    const childRoutes = routes.map((route) => {
+
+      const { path, metaData } = route
+
+      const Component = route.component as React.ComponentType<any>
+
+      const loader = 'loader' in route ? route.loader : undefined
+
+      return createRoute({
+        getParentRoute: () => landingLayoutRoute,
+        path: path,
+        component: () => (
+          <Suspense fallback={<div>Loading…</div>}>
+            <Component metaData={metaData} />
+          </Suspense>
+        ),
+        ...(loader ? { loader } : {}),
+        errorComponent: Error404,
+      })
+    })
+    ```
+
+    **Key features**:
+    - Each route gets `Suspense` for code splitting
+    - Metadata passed as props to components
+    - Loaders conditionally added via spread operator
+    - All routes share error component
+  </Tab>
+
+  <Tab title="4. Compose and Return">
+    Combine layout with children:
+
+    ```tsx
+    // src/features/landing/router/router.tsx:42-43
+    return landingLayoutRoute.addChildren(childRoutes)
+    ```
+
+    This returns a **complete route tree** ready to be added to the parent.
+  </Tab>
+</Tabs>
+
+## Route Guards
+
+Guards are functions that run `beforeLoad` to enforce access control:
+
+<Tabs>
+  <Tab title="Auth Guard">
+    Redirects authenticated users away from auth pages:
+
+    ```typescript
+    // src/shared/guard/authGuard.ts:1-13
+    import { redirect } from '@tanstack/react-router'
+    import { checkAuthenticated } from '../hooks/useCheckAuthenticated'
+    import { ROUTES } from '../constants/routes'
+
+    export const authGuard = () => {
+
+      const isAuth = checkAuthenticated()
+      
+      if (isAuth) {
+        throw redirect({ to: ROUTES.backoffice.dashboard.fullPath })
+      }
+    }
+    ```
+
+    **Applied to auth router**:
+
+    ```tsx
+    // src/features/auth/router/router.tsx:14-21
+    const authLayoutRoute = createRoute({
+      getParentRoute: () => parentRoute,
+      id: 'auth',
+      component: AuthLayout,
+      beforeLoad: authGuard,  // Applied here
+      errorComponent: Error404,
+      notFoundComponent: createNotFoundRedirect(ROUTES.auth.login.fullPath),
+    })
+    ```
+  </Tab>
+
+  <Tab title="Backoffice Guard">
+    Requires authentication for protected routes:
+
+    ```typescript
+    // src/shared/guard/backofficeGuard.ts:1-13
+    import { redirect } from '@tanstack/react-router'
+    import { checkAuthenticated } from '../hooks/useCheckAuthenticated'
+    import { ROUTES } from '../constants/routes'
+
+    export const backofficeGuard = () => {
+
+      const isAuth = checkAuthenticated()
+      
+      if (!isAuth) {
+        throw redirect({ to: ROUTES.auth.login.fullPath })
+      }
+    }
+    ```
+
+    **Applied to backoffice router**:
+
+    ```tsx
+    // src/features/backoffice/router/router.tsx:15-22
+    const backofficeLayoutRoute = createRoute({
+      getParentRoute: () => parentRoute,
+      path: ROUTES.backoffice.backoffice.path,
+      component: BackofficeLayout,
+      beforeLoad: backofficeGuard,  // Applied here
+      errorComponent: Error404,n      notFoundComponent: createNotFoundRedirect(ROUTES.backoffice.dashboard.fullPath),
+    })
+    ```
+  </Tab>
+</Tabs>
+
+<Note type="warning">
+  Guards throw redirect exceptions rather than returning values. This is TanStack Router's recommended pattern.
+</Note>
+
+## Nested Routing
+
+Features can nest sub-features by passing their layout route as the parent:
+
+### Example: Backoffice → Admin
+
+<Tabs>
+  <Tab title="Parent Router">
+    The backoffice router includes the admin router as a child:
+
+    ```tsx
+    // src/features/backoffice/router/router.tsx:13-51
+    export const backofficeRouter = (parentRoute: AnyRoute) => {
+
+      const backofficeLayoutRoute = createRoute({
+        getParentRoute: () => parentRoute,
+        path: ROUTES.backoffice.backoffice.path,
+        component: BackofficeLayout,
+        beforeLoad: backofficeGuard,
+        errorComponent: Error404,
+        notFoundComponent: createNotFoundRedirect(ROUTES.backoffice.dashboard.fullPath),
+      })
+
+      const dashboardIndexRoute = createRoute({
+        getParentRoute: () => backofficeLayoutRoute,
+        path: '/',
+        beforeLoad: () => { throw redirect({ to: ROUTES.backoffice.dashboard.fullPath }) },
+      })
+
+      const childRoutes = routes.map(({ path, component, metadata }) => {
+        const Component = component as React.ComponentType<any>
+        return createRoute({
+          getParentRoute: () => backofficeLayoutRoute,
+          path: path,
+          component: () => (
+            <Suspense fallback={<div>Loading…</div>}>
+              <Component metaData={metadata} />
+            </Suspense>
+          ),
+          errorComponent: Error404,
+        })
+      })
+
+      return backofficeLayoutRoute.addChildren([
+        dashboardIndexRoute,
+        ...childRoutes,
+        adminRouter(backofficeLayoutRoute),  // Nested feature
+      ])
+    }
+    ```
+  </Tab>
+
+  <Tab title="Child Router">
+    The admin router receives the backoffice layout as its parent:
+
+    ```tsx
+    // src/features/backoffice/admin/router/router.tsx:23-56
+    export const adminRouter = (parentRoute: AnyRoute) => {
+
+      const adminLayoutRoute = createRoute({
+        getParentRoute: () => parentRoute,  // backofficeLayoutRoute
+        path: ROUTES.admin.root.path,       // 'admin'
+        component: AdminLayout,
+        errorComponent: Error404,
+        notFoundComponent: createNotFoundRedirect(ROUTES.admin.users.fullPath),
+      })
+
+      const adminIndexRoute = createRoute({
+        getParentRoute: () => adminLayoutRoute,
+        path: '/',
+        beforeLoad: () => { throw redirect({ to: ROUTES.admin.users.fullPath }) },
+      })
+
+      const childRoutes = routes.map(({ path, component, metadata }) => {
+        const Component = component as React.ComponentType<any>
+        return createRoute({
+          getParentRoute: () => adminLayoutRoute,
+          path: path,
+          component: () => (
+            <Suspense fallback={<div>Loading…</div>}>
+              <Component metaData={metadata} />
+            </Suspense>
+          ),
+          errorComponent: Error404,
+        })
+      })
+
+      return adminLayoutRoute.addChildren([adminIndexRoute, ...childRoutes])
+    }
+    ```
+  </Tab>
+
+  <Tab title="Route Hierarchy">
+    This creates the following route structure:
+
+    ```
+    / (rootRoute)
+    ├── /login (authRouter)
+    ├── /home (landingRouter)
+    └── /backoffice (backofficeRouter)
+        ├── /backoffice/dashboard
+        ├── /backoffice/users
+        └── /backoffice/admin (adminRouter)
+            ├── /backoffice/admin/users
+            ├── /backoffice/admin/roles
+            └── /backoffice/admin/permissions
+    ```
+
+    **Layout nesting**:
+    ```
+    <RootLayout>              ← rootRoute.component
+      <BackofficeLayout>      ← backofficeLayoutRoute.component
+        <AdminLayout>         ← adminLayoutRoute.component
+          <AdminUsersPage />  ← Actual page component
+        </AdminLayout>
+      </BackofficeLayout>
+    </RootLayout>
+    ```
+  </Tab>
+</Tabs>
+
+## Route Loaders
+
+TanStack Router supports **data loaders** that run before route rendering:
+
+### Defining a Loader
+
+```typescript
+// src/features/landing/loaders/productLoader.ts:1-9
+export const productLoader = ({ params }: { params: Record<string, string> }) => {
+  const id = params.id
+  console.log('id', id)
+  if (id === '2') {
+    throw new Response('Not Found', { status: 404, statusText: 'Not Found' })
+  }
+  return { params }
+}
+```
+
+### Attaching to Route
+
+```typescript
+// src/features/landing/router/routes.ts:21-26
+{
+  path: landing.product.path,     // '/product/$id'
+  component: Product,
+  loader: productLoader,          // Loader runs before render
+  metaData: product,
+},
+```
+
+### Conditionally Adding Loaders
+
+```tsx
+// src/features/landing/router/router.tsx:27-30
+const loader = 'loader' in route ? route.loader : undefined
+
+return createRoute({
+  // ...
+  ...(loader ? { loader } : {}),  // Only add if defined
+})
+```
+
+<Note>
+  Loaders enable data prefetching, preventing loading states and improving UX. They can also throw responses for error handling.
+</Note>
+
+## Route Metadata
+
+Metadata provides page titles, descriptions, and other meta tags:
+
+```typescript
+// features/<feature>/router/metadata.ts (conceptual)
+export const featureMetaData = () => ({
+  home: {
+    title: 'Home',
+    description: 'Welcome to our application',
+  },
+  about: {
+    title: 'About Us',
+    description: 'Learn more about our team',
+  },
+})
+```
+
+Metadata flows through the route config and becomes props:
+
+```tsx
+component: () => (
+  <Component metaData={metaData} />  // metaData available in component
+)
+```
+
+## Type-Safe Navigation
+
+The `ROUTES` constant provides type-safe navigation:
+
+```typescript
+// src/shared/constants/routes.ts:87-92
+export const ROUTES = {
+  landing:    LANDING_ROUTES,
+  auth:       AUTH_ROUTES,
+  backoffice: BACKOFFICE_ROUTES,
+  admin:      ADMIN_ROUTES,
+} as const
+```
+
+### Programmatic Navigation
+
+```typescript
+import { useNavigate } from '@tanstack/react-router'
+import { ROUTES } from '@/shared/constants/routes'
+
+const navigate = useNavigate()
+
+// Simple navigation
+navigate({ to: ROUTES.landing.home.fullPath })
+
+// Dynamic routes with parameters
+navigate({ to: ROUTES.landing.product.to('product-123') })
+```
+
+### Declarative Links
+
+```tsx
+import { Link } from '@tanstack/react-router'
+import { ROUTES } from '@/shared/constants/routes'
+
+<Link to={ROUTES.landing.contact.path}>Contact Us</Link>
+<Link to={ROUTES.landing.product.to(product.id)}>View Product</Link>
+```
+
+## Adding a New Feature
+
+To add a new feature with routing:
+
+<Steps>
+  <Step title="Create feature structure">
+    ```bash
+    mkdir -p src/features/blog/{layout,posts,router}
+    touch src/features/blog/layout/blogLayout.tsx
+    touch src/features/blog/posts/posts.tsx
+    touch src/features/blog/router/{metadata.ts,routes.ts,router.tsx}
+    ```
+  </Step>
+
+  <Step title="Define routes constant">
+    Add to `src/shared/constants/routes.ts`:
+
+    ```typescript
+    const BLOG_ROUTES = {
+      root: {
+        path: '/blog',
+        fullPath: '/blog',
+        name: 'Blog',
+      },
+      posts: {
+        path: 'posts',
+        fullPath: '/blog/posts',
+        name: 'Posts',
+      },
+    } as const satisfies Record<string, AppRoute>
+
+    export const ROUTES = {
+      // ... existing routes
+      blog: BLOG_ROUTES,
+    }
+    ```
+  </Step>
+
+  <Step title="Create router builder">
+    In `src/features/blog/router/router.tsx`:
+
+    ```tsx
+    import { createRoute } from '@tanstack/react-router'
+    import type { AnyRoute } from '@tanstack/react-router'
+    import { BlogLayout } from '../layout/blogLayout'
+    import { routes } from './routes'
+
+    export const blogRouter = (parentRoute: AnyRoute) => {
+      const blogLayoutRoute = createRoute({
+        getParentRoute: () => parentRoute,
+        path: ROUTES.blog.root.path,
+        component: BlogLayout,
+      })
+
+      const childRoutes = routes.map(/* ... map logic ... */)
+
+      return blogLayoutRoute.addChildren(childRoutes)
+    }
+    ```
+  </Step>
+
+  <Step title="Add to main router">
+    In `src/core/router/tankStackRouter.tsx`:
+
+    ```tsx
+    import { blogRouter } from '../../features/blog/router/router'
+
+    const routeTree = rootRoute.addChildren([
+      // ... existing routers
+      blogRouter(rootRoute),  // Add this line
+    ])
+    ```
+  </Step>
+</Steps>
+
+## Router Devtools
+
+The router includes built-in devtools for debugging:
+
+```tsx
+// src/core/router/tankStackRouter.tsx:44-47
+<TanStackRouterDevtools
+  router={router}
+  initialIsOpen={false}
+/>
+```
+
+**Features**:
+- View route tree structure
+- Inspect current route params
+- Monitor route transitions
+- Debug loader data
+- Check route matching
+
+<Note>
+  Devtools are only included in development builds and removed in production.
+</Note>
+
+## Hash History Support
+
+For environments requiring hash-based routing:
+
+```tsx
+// src/core/router/tankStackRouter.tsx:15-16,38
+import { createHashHistory } from '@tanstack/react-router'
+
+const hashHistory = createHashHistory()
+
+// Use in router creation
+const router = createRouter({ routeTree, history: hashHistory })
+```
+
+This changes URLs from `/home` to `/#/home`.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Data Flow Patterns" icon="arrow-right-arrow-left" href="/architecture/data-flow">
+    Learn how data moves through the application layers
+  </Card>
+  <Card title="Architecture Overview" icon="sitemap" href="/architecture/overview">
+    Return to architectural principles and patterns
+  </Card>
+</CardGroup>

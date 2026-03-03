@@ -1,0 +1,337 @@
+---
+title: Helper Functions
+description: Utility functions for routing, redirects, and common operations
+---
+
+## createNotFoundRedirect
+
+Factory function that creates a React component for handling 404 redirects. When rendered, it automatically redirects to a specified route.
+
+### Function Signature
+
+```typescript
+export const createNotFoundRedirect = (to: string) => React.ComponentType
+```
+
+### Parameters
+
+<ParamField path="to" type="string" required>
+  The target route path to redirect to when a 404 occurs. Should be a valid route path from your ROUTES constants.
+</ParamField>
+
+### Return Value
+
+<ResponseField name="return" type="React.ComponentType">
+  A React component that performs the redirect when mounted. The component:
+  - Returns `null` (renders nothing)
+  - Uses `useNavigate` and `useEffect` to perform the redirect
+  - Has a descriptive `displayName` for debugging
+  - Uses `replace: true` to avoid adding to browser history
+</ResponseField>
+
+### Usage
+
+#### Basic 404 Redirect
+
+Redirect to home when a route is not found:
+
+```typescript
+import { createFileRoute } from '@tanstack/react-router'
+import { createNotFoundRedirect } from '@/shared/helpers/NotFoundRedirect'
+import { ROUTES } from '@/shared/constants/routes'
+
+const NotFoundRedirect = createNotFoundRedirect(ROUTES.landing.home.fullPath)
+
+export const Route = createFileRoute('/_404')({
+  component: NotFoundRedirect,
+})
+```
+
+#### Section-Specific 404 Handling
+
+Redirect to the dashboard when a backoffice route is not found:
+
+```typescript
+import { createFileRoute } from '@tanstack/react-router'
+import { createNotFoundRedirect } from '@/shared/helpers/NotFoundRedirect'
+import { ROUTES } from '@/shared/constants/routes'
+
+const BackofficeNotFound = createNotFoundRedirect(
+  ROUTES.backoffice.dashboard.fullPath
+)
+
+export const Route = createFileRoute('/backoffice/_404')({
+  component: BackofficeNotFound,
+})
+```
+
+#### Admin Section 404
+
+Redirect to admin users page when an admin route is not found:
+
+```typescript
+import { createFileRoute } from '@tanstack/react-router'
+import { createNotFoundRedirect } from '@/shared/helpers/NotFoundRedirect'
+import { ROUTES } from '@/shared/constants/routes'
+
+const AdminNotFound = createNotFoundRedirect(
+  ROUTES.admin.users.fullPath
+)
+
+export const Route = createFileRoute('/backoffice/admin/_404')({
+  component: AdminNotFound,
+})
+```
+
+### Implementation Details
+
+Source: `~/workspace/source/src/shared/helpers/NotFoundRedirect.tsx:4`
+
+```typescript
+import { useEffect } from 'react'
+import { useNavigate } from '@tanstack/react-router'
+
+export const createNotFoundRedirect = (to: string) => {
+  const NotFoundRedirect = () => {
+    const navigate = useNavigate()
+    
+    useEffect(() => {
+      navigate({ to, replace: true })
+    }, [navigate])
+    
+    return null
+  }
+  
+  NotFoundRedirect.displayName = `NotFoundRedirect(${to})`
+  
+  return NotFoundRedirect
+}
+```
+
+### How It Works
+
+1. **Factory Pattern**: Returns a new component for each target route
+2. **Automatic Redirect**: Uses `useEffect` to navigate on mount
+3. **History Replace**: Uses `replace: true` to prevent back-button loops
+4. **Debugging**: Sets `displayName` for easier identification in React DevTools
+5. **No UI**: Returns `null` since redirect happens immediately
+
+### Best Practices
+
+#### Use with Route Constants
+
+Always use ROUTES constants for type safety:
+
+```typescript
+// Good
+const NotFound = createNotFoundRedirect(ROUTES.landing.home.fullPath)
+
+// Avoid
+const NotFound = createNotFoundRedirect('/home')
+```
+
+#### Create Named Components
+
+Name your components for clarity:
+
+```typescript
+// Good - clear purpose
+const LandingNotFound = createNotFoundRedirect(ROUTES.landing.home.fullPath)
+const BackofficeNotFound = createNotFoundRedirect(ROUTES.backoffice.dashboard.fullPath)
+
+// Avoid - generic naming
+const NotFound1 = createNotFoundRedirect(ROUTES.landing.home.fullPath)
+const NotFound2 = createNotFoundRedirect(ROUTES.backoffice.dashboard.fullPath)
+```
+
+#### Organize by Section
+
+Create section-specific 404 handlers:
+
+```typescript
+// File: src/routes/backoffice/_404.tsx
+import { createFileRoute } from '@tanstack/react-router'
+import { createNotFoundRedirect } from '@/shared/helpers/NotFoundRedirect'
+import { ROUTES } from '@/shared/constants/routes'
+
+// All backoffice 404s go to dashboard
+const BackofficeNotFound = createNotFoundRedirect(
+  ROUTES.backoffice.dashboard.fullPath
+)
+
+export const Route = createFileRoute('/backoffice/_404')({
+  component: BackofficeNotFound,
+})
+```
+
+```typescript
+// File: src/routes/_404.tsx
+import { createFileRoute } from '@tanstack/react-router'
+import { createNotFoundRedirect } from '@/shared/helpers/NotFoundRedirect'
+import { ROUTES } from '@/shared/constants/routes'
+
+// Root level 404s go to home
+const RootNotFound = createNotFoundRedirect(ROUTES.landing.home.fullPath)
+
+export const Route = createFileRoute('/_404')({
+  component: RootNotFound,
+})
+```
+
+---
+
+## keyStorage
+
+Centralized storage key definitions to prevent typos and ensure consistency across the application.
+
+### Function Signature
+
+```typescript
+export const keyStorage = () => {
+  auth: string
+  lang: string
+}
+```
+
+### Return Value
+
+Returns an object containing localStorage key names:
+
+<ResponseField name="auth" type="string">
+  Key for storing authentication state. Value: `'auth'`
+</ResponseField>
+
+<ResponseField name="lang" type="string">
+  Key for storing language preference. Value: `'lang'`
+</ResponseField>
+
+### Usage
+
+#### Authentication Storage
+
+```typescript
+import { useStorage } from '@/shared/hooks/useStorage'
+import { keyStorage } from '@/shared/utils/keyStorage'
+
+function LoginForm() {
+  const { setStorage } = useStorage()
+  const { auth } = keyStorage()
+  
+  const handleLogin = async () => {
+    // Store auth state
+    setStorage(auth, { auth: 'true' })
+  }
+  
+  return <form onSubmit={handleLogin}>...</form>
+}
+```
+
+#### Language Preference
+
+```typescript
+import { useStorage } from '@/shared/hooks/useStorage'
+import { keyStorage } from '@/shared/utils/keyStorage'
+
+function LanguageSelector() {
+  const { getStorage, setStorage } = useStorage()
+  const { lang } = keyStorage()
+  
+  const currentLang = getStorage(lang)?.language || 'en'
+  
+  const setLanguage = (language: string) => {
+    setStorage(lang, { language })
+  }
+  
+  return (
+    <select value={currentLang} onChange={(e) => setLanguage(e.target.value)}>
+      <option value="en">English</option>
+      <option value="es">Español</option>
+    </select>
+  )
+}
+```
+
+#### Checking Authentication
+
+```typescript
+import { keyStorage } from '@/shared/utils/keyStorage'
+
+export const checkAuthenticated = (): boolean => {
+  try {
+    const { auth } = keyStorage()
+    const raw = localStorage.getItem(auth)
+    
+    if (!raw) return false
+    
+    return (JSON.parse(raw)?.auth as string) === 'true'
+  } catch {
+    return false
+  }
+}
+```
+
+### Implementation Details
+
+Source: `~/workspace/source/src/shared/utils/keyStorage.ts:1`
+
+```typescript
+export const keyStorage = () => {
+  return {
+    auth: 'auth',
+    lang: 'lang',
+  }
+}
+```
+
+### Benefits
+
+1. **Type Safety**: TypeScript autocomplete for storage keys
+2. **Consistency**: Single source of truth for key names
+3. **Refactoring**: Easy to update key names in one place
+4. **Prevention**: Eliminates typos in string literals
+5. **Extensibility**: Easy to add new storage keys
+
+### Adding New Storage Keys
+
+To add a new storage key:
+
+```typescript
+export const keyStorage = () => {
+  return {
+    auth: 'auth',
+    lang: 'lang',
+    theme: 'theme',        // New key
+    userPrefs: 'user_prefs', // New key
+  }
+}
+```
+
+Then use it throughout your app:
+
+```typescript
+import { useStorage } from '@/shared/hooks/useStorage'
+import { keyStorage } from '@/shared/utils/keyStorage'
+
+function ThemeToggle() {
+  const { getStorage, setStorage } = useStorage()
+  const { theme } = keyStorage()
+  
+  const currentTheme = getStorage(theme)?.mode || 'light'
+  
+  const toggleTheme = () => {
+    const newTheme = currentTheme === 'light' ? 'dark' : 'light'
+    setStorage(theme, { mode: newTheme })
+  }
+  
+  return <button onClick={toggleTheme}>Toggle Theme</button>
+}
+```
+
+---
+
+## Related APIs
+
+- [ROUTES](/api/constants) - Route constants used with createNotFoundRedirect
+- [useStorage](/api/hooks#usestorage) - Uses keyStorage for consistent key names
+- [checkAuthenticated](/api/hooks#checkauthenticated) - Uses keyStorage to check auth state
+- [TanStack Router](https://tanstack.com/router) - Router used by createNotFoundRedirect

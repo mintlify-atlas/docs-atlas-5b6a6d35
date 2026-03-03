@@ -1,80 +1,289 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Get your React + TanStack Router app running in under 5 minutes
 ---
 
-## Get started in three steps
+# Quick Start
 
-Get your documentation site running locally and make your first customization.
-
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+Get up and running with base-react-v2 in just a few steps. This guide will have your development server running in under 5 minutes.
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+This boilerplate is optimized for Bun but works with npm, yarn, or pnpm as well.
 </Note>
+
+## Prerequisites
+
+Before you begin, ensure you have one of the following installed:
+
+- [Bun](https://bun.sh) 1.0 or higher (recommended)
+- [Node.js](https://nodejs.org) 18+ with npm, yarn, or pnpm
+
+## Installation
+
+<Steps>
+  <Step title="Clone the repository">
+    Clone the boilerplate to your local machine:
+
+    ```bash
+    git clone <repository-url>
+    cd base-react-v2
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    Install project dependencies with your preferred package manager:
+
+    <CodeGroup>
+      ```bash bun
+      bun install
+      ```
+
+      ```bash npm
+      npm install
+      ```
+
+      ```bash yarn
+      yarn install
+      ```
+
+      ```bash pnpm
+      pnpm install
+      ```
+    </CodeGroup>
+
+    <Tip>
+    Using Bun? Installation is typically 3-5x faster than npm.
+    </Tip>
+  </Step>
+
+  <Step title="Configure environment">
+    Create your environment file from the example:
+
+    ```bash
+    cp .env.example .env.dev
+    ```
+
+    The default configuration includes:
+
+    ```bash
+    VITE_PUBLIC_URL=/
+    VITE_TANKSTACK_ROUTER_TOOLS=true
+    ```
+
+    <Note>
+    - `VITE_PUBLIC_URL`: Set the base path for your app (use `/` for root or `/subpath` for subdirectories)
+    - `VITE_TANKSTACK_ROUTER_TOOLS`: Enable/disable TanStack Router devtools
+    </Note>
+  </Step>
+
+  <Step title="Start the dev server">
+    Launch the development server:
+
+    <CodeGroup>
+      ```bash bun
+      bun run dev --mode dev
+      ```
+
+      ```bash npm
+      npm run dev -- --mode dev
+      ```
+
+      ```bash yarn
+      yarn dev --mode dev
+      ```
+
+      ```bash pnpm
+      pnpm dev --mode dev
+      ```
+    </CodeGroup>
+
+    Your app will be available at `http://localhost:5173` (Vite's default port).
+
+    <Tip>
+    The dev server runs on `0.0.0.0` by default, making it accessible from other devices on your network.
+    </Tip>
+  </Step>
+</Steps>
+
+## What You Get
+
+Once the dev server is running, you'll have access to:
+
+### Application Routes
+
+The boilerplate comes with pre-configured feature modules:
+
+- **Landing Pages** (`/`): Public-facing pages
+- **Authentication** (`/auth/login`, `/auth/register`): Login and registration flows
+- **Backoffice** (`/backoffice/*`): Protected admin dashboard
+- **404 Handling**: Automatic redirect for unknown routes
+
+### Development Tools
+
+<CardGroup cols={2}>
+  <Card title="TanStack Router Devtools" icon="route">
+    Built-in devtools for inspecting routes, params, and loaders. Toggle with the floating button in the bottom corner.
+  </Card>
+  <Card title="React Developer Tools" icon="react">
+    Install the browser extension to inspect component tree and state.
+  </Card>
+  <Card title="Hot Module Replacement" icon="fire">
+    Instant updates without losing component state thanks to Vite + React Fast Refresh.
+  </Card>
+  <Card title="TypeScript Checking" icon="code">
+    Real-time type checking in your IDE with full IntelliSense support.
+  </Card>
+</CardGroup>
+
+## Project Scripts
+
+The boilerplate includes these npm scripts:
+
+```json
+{
+  "dev": "vite --host 0.0.0.0",
+  "build": "tsc -b && vite build",
+  "lint": "eslint .",
+  "preview": "vite preview"
+}
+```
+
+### Development Mode
+
+Run the development server with hot reload:
+
+<CodeGroup>
+  ```bash bun
+  bun run dev --mode dev
+  ```
+
+  ```bash npm
+  npm run dev -- --mode dev
+  ```
+</CodeGroup>
+
+<Note>
+The `--mode dev` flag loads environment variables from `.env.dev`. You can create different env files for different environments (`.env.production`, `.env.staging`, etc.).
+</Note>
+
+### Build for Production
+
+Create an optimized production build:
+
+<CodeGroup>
+  ```bash bun
+  bun run build
+  ```
+
+  ```bash npm
+  npm run build
+  ```
+</CodeGroup>
+
+This will:
+1. Run TypeScript compiler to check types
+2. Bundle your application with Vite
+3. Output optimized files to `dist/`
+
+### Preview Production Build
+
+Test your production build locally:
+
+<CodeGroup>
+  ```bash bun
+  bun run preview
+  ```
+
+  ```bash npm
+  npm run preview
+  ```
+</CodeGroup>
+
+### Lint Code
+
+Run ESLint to check code quality:
+
+<CodeGroup>
+  ```bash bun
+  bun run lint
+  ```
+
+  ```bash npm
+  npm run lint
+  ```
+</CodeGroup>
+
+## Quick Architecture Overview
+
+The boilerplate uses a feature-based architecture:
+
+```typescript
+// src/App.tsx - Entry point
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import { Providers } from './core/providers/providers'
+import { TankStackRouter } from './core/router/tankStackRouter'
+import './app.css'
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <Providers>
+      <TankStackRouter />
+    </Providers>
+  </StrictMode>,
+)
+```
+
+<Tip>
+The `Providers` component wraps your app with global providers (QueryClient, Theme, etc.). The `TankStackRouter` component handles all routing logic.
+</Tip>
+
+## Routing Example
+
+Routes are defined per feature using factory functions:
+
+```typescript
+// core/router/tankStackRouter.tsx
+const routeTree = rootRoute.addChildren([
+  ...baseRedirectRouter(baseRoute, rootRoute),
+  landingRouter(rootRoute),
+  authRouter(rootRoute),
+  backofficeRouter(rootRoute),
+])
+
+const router = createRouter({ routeTree })
+```
+
+Each feature module exports a router factory that creates its route subtree. This keeps features isolated and composable.
+
+## Next Steps
+
+Now that you're up and running:
+
+<CardGroup cols={2}>
+  <Card title="Installation Guide" icon="download" href="/installation">
+    Learn about advanced configuration, deployment, and troubleshooting
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture/overview">
+    Dive deep into the layered architecture and design patterns
+  </Card>
+  <Card title="Create a Feature" icon="plus" href="/guides/adding-features">
+    Learn how to add new features following the established patterns
+  </Card>
+  <Card title="Routing" icon="route" href="/architecture/routing">
+    Master TanStack Router with loaders, guards, and type-safe navigation
+  </Card>
+</CardGroup>
+
+## Need Help?
+
+If you run into issues:
+
+1. Check that your Node.js/Bun version meets the requirements
+2. Delete `node_modules` and reinstall dependencies
+3. Verify your `.env.dev` file exists and has the correct variables
+4. Check the browser console for error messages
+
+<Tip>
+Most issues can be resolved by ensuring environment variables are properly configured and dependencies are correctly installed.
+</Tip>

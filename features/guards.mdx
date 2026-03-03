@@ -1,0 +1,432 @@
+---
+title: Route Guards
+description: Protecting routes with authentication guards using TanStack Router
+---
+
+## Overview
+
+Route guards are functions that run **before a route loads** using TanStack Router's `beforeLoad` option. They check conditions (like authentication status) and redirect users if needed.
+
+<Tip>
+  Guards use `throw redirect()` to navigate users away. This prevents the route from rendering and immediately redirects to the target path.
+</Tip>
+
+## The beforeLoad Pattern
+
+TanStack Router executes `beforeLoad` functions before rendering a route or layout:
+
+```tsx
+import { createRoute } from '@tanstack/react-router'
+import { myGuard } from './guards/myGuard'
+
+const protectedRoute = createRoute({
+  path: '/protected',
+  component: ProtectedPage,
+  beforeLoad: myGuard, // Runs before route renders
+})
+```
+
+If the guard throws a redirect, the route never renders and the user is sent to the redirect target.
+
+## Built-in Guards
+
+The boilerplate includes two guards in `shared/guard/`:
+
+### authGuard (Redirect Authenticated Users)
+
+Prevents authenticated users from accessing auth pages (login, register):
+
+```tsx
+import { redirect } from '@tanstack/react-router'
+import { checkAuthenticated } from '../hooks/useCheckAuthenticated'
+import { ROUTES } from '../constants/routes'
+
+export const authGuard = () => {
+  const isAuth = checkAuthenticated()
+  
+  if (isAuth) {
+    throw redirect({ to: ROUTES.backoffice.dashboard.fullPath })
+  }
+}
+```
+
+Source: `~/workspace/source/src/shared/guard/authGuard.ts:5`
+
+**Usage:**
+- Applied to the auth layout route
+- Redirects logged-in users to `/backoffice/dashboard`
+- Allows guests to access login/register pages
+
+### backofficeGuard (Require Authentication)
+
+Requires authentication to access protected routes:
+
+```tsx
+import { redirect } from '@tanstack/react-router'
+import { checkAuthenticated } from '../hooks/useCheckAuthenticated'
+import { ROUTES } from '../constants/routes'
+
+export const backofficeGuard = () => {
+  const isAuth = checkAuthenticated()
+  
+  if (!isAuth) {
+    throw redirect({ to: ROUTES.auth.login.fullPath })
+  }
+}
+```
+
+Source: `~/workspace/source/src/shared/guard/backofficeGuard.ts:5`
+
+**Usage:**
+- Applied to the backoffice layout route
+- Redirects unauthenticated users to `/login`
+- Allows authenticated users to access protected pages
+
+## Applying Guards
+
+### Layout-Level Protection
+
+Apply a guard to a layout route to protect **all child routes**:
+
+```tsx
+import { createRoute } from '@tanstack/react-router'
+import { backofficeGuard } from '../../../shared/guard/backofficeGuard'
+import { BackofficeLayout } from '../layout/backofficeLayout'
+
+export const backofficeRouter = (parentRoute: AnyRoute) => {
+  const backofficeLayoutRoute = createRoute({
+    getParentRoute: () => parentRoute,
+    path: '/backoffice',
+    component: BackofficeLayout,
+    beforeLoad: backofficeGuard, // Protects all child routes
+  })
+
+  return backofficeLayoutRoute.addChildren([
+    dashboardRoute,   // Protected by backofficeGuard
+    usersRoute,       // Protected by backofficeGuard
+    settingsRoute,    // Protected by backofficeGuard
+  ])
+}
+```
+
+Source: `~/workspace/source/src/features/backoffice/router/router.tsx:15`
+
+<Warning>
+  Layout-level guards run **once** when entering the layout. They don't re-run when navigating between child routes.
+</Warning>
+
+### Page-Level Protection
+
+Apply a guard to individual routes for fine-grained control:
+
+```tsx
+const adminRoute = createRoute({
+  getParentRoute: () => backofficeLayoutRoute,
+  path: 'admin',
+  component: AdminPage,
+  beforeLoad: adminGuard, // Only this page is protected
+})
+```
+
+### Combining Multiple Guards
+
+Chain multiple guards by calling them in sequence:
+
+```tsx
+import { authGuard } from './guards/authGuard'
+import { roleGuard } from './guards/roleGuard'
+
+const combinedGuard = () => {
+  authGuard()      // Check authentication
+  roleGuard('admin') // Check role
+}
+
+const superAdminRoute = createRoute({
+  path: '/super-admin',
+  component: SuperAdminPage,
+  beforeLoad: combinedGuard,
+})
+```
+
+## Authentication Check Implementation
+
+Guards use `checkAuthenticated()` to verify the user's session:
+
+```tsx
+import { keyStorage } from '../utils/keyStorage'
+
+export const checkAuthenticated = (): boolean => {
+  try {
+    const { auth } = keyStorage()
+    const raw = localStorage.getItem(auth)
+    
+    if (!raw) return false
+    
+    return (JSON.parse(raw)?.auth as string) === 'true'
+  } catch {
+    return false
+  }
+}
+```
+
+Source: `~/workspace/source/src/shared/hooks/useCheckAuthenticated.ts:13`
+
+This implementation:
+- Reads from localStorage (replace with your auth solution)
+- Returns `false` if no session exists
+- Handles JSON parse errors gracefully
+
+<Tip>
+  Replace `checkAuthenticated()` with your own authentication logic (JWT validation, session checks, etc.) without changing the guard code.
+</Tip>
+
+## Creating Custom Guards
+
+### Role-Based Guard
+
+```tsx
+import { redirect } from '@tanstack/react-router'
+import { checkAuthenticated } from '../hooks/useCheckAuthenticated'
+import { getUserRole } from '../hooks/useUserRole'
+import { ROUTES } from '../constants/routes'
+
+export const roleGuard = (requiredRole: string) => () => {
+  const isAuth = checkAuthenticated()
+  
+  if (!isAuth) {
+    throw redirect({ to: ROUTES.auth.login.fullPath })
+  }
+  
+  const userRole = getUserRole()
+  
+  if (userRole !== requiredRole) {
+    throw redirect({ to: ROUTES.landing.home.fullPath })
+  }
+}
+
+// Usage:
+const adminRoute = createRoute({
+  path: '/admin',
+  component: AdminPage,
+  beforeLoad: roleGuard('admin'),
+})
+```
+
+### Permission-Based Guard
+
+```tsx
+export const permissionGuard = (permission: string) => () => {
+  const isAuth = checkAuthenticated()
+  
+  if (!isAuth) {
+    throw redirect({ to: ROUTES.auth.login.fullPath })
+  }
+  
+  const userPermissions = getUserPermissions() // Your implementation
+  
+  if (!userPermissions.includes(permission)) {
+    throw redirect({ to: ROUTES.backoffice.dashboard.fullPath })
+  }
+}
+
+// Usage:
+const invoicesRoute = createRoute({
+  path: '/invoices',
+  component: InvoicesPage,
+  beforeLoad: permissionGuard('invoices:read'),
+})
+```
+
+### Subscription Guard
+
+```tsx
+export const subscriptionGuard = () => {
+  const isAuth = checkAuthenticated()
+  
+  if (!isAuth) {
+    throw redirect({ to: ROUTES.auth.login.fullPath })
+  }
+  
+  const subscription = getUserSubscription() // Your implementation
+  
+  if (!subscription || subscription.status !== 'active') {
+    throw redirect({ to: ROUTES.billing.plans.fullPath })
+  }
+}
+```
+
+## Guard Execution Order
+
+Guards execute in this order:
+
+1. **Root route guard** (if any)
+2. **Layout route guard**
+3. **Child route guard**
+4. **Page route guard**
+
+The first guard to throw a redirect wins and stops further execution.
+
+```tsx
+// Execution order example:
+
+// 1. Root guard (if defined)
+const rootRoute = createRootRoute({
+  beforeLoad: globalGuard, // Runs first
+})
+
+// 2. Layout guard
+const backofficeLayout = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/backoffice',
+  beforeLoad: backofficeGuard, // Runs second
+})
+
+// 3. Page guard
+const adminPage = createRoute({
+  getParentRoute: () => backofficeLayout,
+  path: 'admin',
+  beforeLoad: adminGuard, // Runs third
+})
+```
+
+## Passing Context from Guards
+
+Guards can set context data that child routes access:
+
+```tsx
+import { redirect } from '@tanstack/react-router'
+
+export const userGuard = async () => {
+  const isAuth = checkAuthenticated()
+  
+  if (!isAuth) {
+    throw redirect({ to: '/login' })
+  }
+  
+  const user = await fetchCurrentUser() // API call
+  
+  return { user } // Available to child routes
+}
+
+// Access in component:
+import { useRouteContext } from '@tanstack/react-router'
+
+export const ProfilePage = () => {
+  const { user } = useRouteContext({ from: '/profile' })
+  
+  return <div>Welcome, {user.name}!</div>
+}
+```
+
+## Async Guards
+
+Guards can be async for API-based checks:
+
+```tsx
+export const tokenGuard = async () => {
+  const token = getStoredToken()
+  
+  if (!token) {
+    throw redirect({ to: '/login' })
+  }
+  
+  // Verify token with API
+  const isValid = await verifyToken(token)
+  
+  if (!isValid) {
+    clearStoredToken()
+    throw redirect({ to: '/login' })
+  }
+}
+```
+
+<Warning>
+  Async guards can slow down navigation. Cache validation results or use token expiry checks when possible.
+</Warning>
+
+## Testing Guards
+
+```tsx
+import { describe, it, expect, vi } from 'vitest'
+import { authGuard } from './authGuard'
+import { checkAuthenticated } from '../hooks/useCheckAuthenticated'
+
+vi.mock('../hooks/useCheckAuthenticated')
+
+describe('authGuard', () => {
+  it('redirects authenticated users', () => {
+    vi.mocked(checkAuthenticated).mockReturnValue(true)
+    
+    expect(() => authGuard()).toThrow()
+  })
+  
+  it('allows unauthenticated users', () => {
+    vi.mocked(checkAuthenticated).mockReturnValue(false)
+    
+    expect(() => authGuard()).not.toThrow()
+  })
+})
+```
+
+## Best Practices
+
+1. **Keep guards pure**: No side effects except redirects
+2. **Place guards in `shared/guard/`**: Reusable across features
+3. **Name guards descriptively**: `authGuard`, `adminGuard`, `subscriptionGuard`
+4. **Don't fetch data in guards**: Use loaders for data fetching
+5. **Handle errors gracefully**: Guards should never crash the app
+6. **Use layout-level guards**: Protect entire sections efficiently
+7. **Cache expensive checks**: Don't validate tokens on every navigation
+
+## Common Patterns
+
+### Redirect with Return URL
+
+```tsx
+import { redirect } from '@tanstack/react-router'
+
+export const authGuardWithReturn = (context: any) => {
+  const isAuth = checkAuthenticated()
+  
+  if (!isAuth) {
+    const returnUrl = context.location.href
+    throw redirect({ 
+      to: '/login',
+      search: { returnUrl },
+    })
+  }
+}
+```
+
+### Guest-Only Routes
+
+```tsx
+export const guestOnlyGuard = () => {
+  const isAuth = checkAuthenticated()
+  
+  if (isAuth) {
+    throw redirect({ to: '/dashboard' })
+  }
+}
+
+// Apply to pricing, marketing pages, etc.
+```
+
+### Maintenance Mode
+
+```tsx
+export const maintenanceGuard = () => {
+  const isMaintenanceMode = import.meta.env.VITE_MAINTENANCE_MODE === 'true'
+  const isAdmin = checkIsAdmin()
+  
+  if (isMaintenanceMode && !isAdmin) {
+    throw redirect({ to: '/maintenance' })
+  }
+}
+```
+
+## Next Steps
+
+- Learn about [Layout Components](/features/layouts) for applying guards at the layout level
+- See [Error Handling](/features/error-handling) for handling guard errors
+- Read [Feature Modules](/features/feature-modules) for the complete feature structure

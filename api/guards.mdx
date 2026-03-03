@@ -1,0 +1,127 @@
+---
+title: Route Guards
+description: Authentication and authorization guards for protecting routes
+---
+
+## Overview
+
+Route guards are functions that control access to routes based on authentication state. They work with TanStack Router's `beforeLoad` lifecycle hook to redirect users when access conditions are not met.
+
+## authGuard
+
+Prevents authenticated users from accessing public routes (like login pages). Redirects authenticated users to the dashboard.
+
+### Function Signature
+
+```typescript
+export const authGuard = () => void
+```
+
+### Behavior
+
+- Checks if the user is authenticated using `checkAuthenticated()`
+- If authenticated, throws a redirect to the backoffice dashboard
+- If not authenticated, allows access to continue
+
+### Usage
+
+Use this guard on authentication routes to prevent logged-in users from accessing login/register pages:
+
+```typescript
+import { createFileRoute } from '@tanstack/react-router'
+import { authGuard } from '@/shared/guard/authGuard'
+import LoginPage from '@/pages/auth/LoginPage'
+
+export const Route = createFileRoute('/login')(
+  component: LoginPage,
+  beforeLoad: authGuard,
+})
+```
+
+### Implementation Details
+
+Source: `~/workspace/source/src/shared/guard/authGuard.ts:5`
+
+```typescript
+export const authGuard = () => {
+  const isAuth = checkAuthenticated()
+  
+  if (isAuth) {
+    throw redirect({ to: ROUTES.backoffice.dashboard.fullPath })
+  }
+}
+```
+
+---
+
+## backofficeGuard
+
+Protects backoffice and admin routes from unauthenticated access. Redirects unauthenticated users to the login page.
+
+### Function Signature
+
+```typescript
+export const backofficeGuard = () => void
+```
+
+### Behavior
+
+- Checks if the user is authenticated using `checkAuthenticated()`
+- If not authenticated, throws a redirect to the login page
+- If authenticated, allows access to continue
+
+### Usage
+
+Use this guard on protected routes to ensure only authenticated users can access them:
+
+```typescript
+import { createFileRoute } from '@tanstack/react-router'
+import { backofficeGuard } from '@/shared/guard/backofficeGuard'
+import DashboardPage from '@/pages/backoffice/DashboardPage'
+
+export const Route = createFileRoute('/backoffice/dashboard')({
+  component: DashboardPage,
+  beforeLoad: backofficeGuard,
+})
+```
+
+### Layout-Level Protection
+
+Apply the guard to a layout to protect all child routes:
+
+```typescript
+import { createFileRoute, Outlet } from '@tanstack/react-router'
+import { backofficeGuard } from '@/shared/guard/backofficeGuard'
+import BackofficeLayout from '@/layouts/BackofficeLayout'
+
+export const Route = createFileRoute('/backoffice')({
+  component: () => (
+    <BackofficeLayout>
+      <Outlet />
+    </BackofficeLayout>
+  ),
+  beforeLoad: backofficeGuard,
+})
+```
+
+### Implementation Details
+
+Source: `~/workspace/source/src/shared/guard/backofficeGuard.ts:5`
+
+```typescript
+export const backofficeGuard = () => {
+  const isAuth = checkAuthenticated()
+  
+  if (!isAuth) {
+    throw redirect({ to: ROUTES.auth.login.fullPath })
+  }
+}
+```
+
+---
+
+## Related APIs
+
+- [checkAuthenticated](/api/hooks#checkauthenticated) - Function used internally by guards to verify authentication
+- [ROUTES](/api/constants) - Route constants used for redirects
+- [useCheckAuthenticated](/api/hooks#usecheckauthenticated) - React hook version for components

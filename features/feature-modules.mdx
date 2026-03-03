@@ -1,0 +1,226 @@
+---
+title: Feature Module Anatomy
+description: Understanding feature module organization and isolation in the boilerplate
+---
+
+## Overview
+
+Each feature in this boilerplate is a **self-contained module** with its own routes, layouts, pages, and business logic. Features are designed to be independent and do not import from each other.
+
+<Tip>
+  The golden rule: **A feature never imports directly from another feature**. If you need something from another feature, move that code to `shared/`.
+</Tip>
+
+## Feature Anatomy
+
+A fully-featured module follows this structure:
+
+```
+features/<feature-name>/
+├── domain/
+│   ├── <Entity>.types.ts       ← Domain types and interfaces
+│   ├── <Entity>.request.ts     ← Request body types
+│   └── <Entity>.response.ts    ← API response types
+│
+├── infrastructure/
+│   ├── api/
+│   │   └── <entity>.api.ts     ← HTTP calls using core/httpClient
+│   ├── stacks/
+│   │   └── <entity>.stack.ts   ← TanStack Query cache (queryKeys, queries, mutations)
+│   └── store/
+│       └── <entity>.store.ts   ← Global state (Zustand)
+│
+├── application/
+│   └── <entity>.service.ts     ← Orchestration layer: coordinates stack, store, and api
+│
+├── layout/                      ← Feature-specific layout
+├── <page>/
+│   ├── <page>.tsx               ← View component
+│   └── hooks/
+│       └── use<Page>.ts         ← Local hook: manages forms, calls service
+│
+└── router/
+    ├── metadata.ts              ← Route titles and metadata
+    ├── routes.ts                ← Route definitions
+    └── router.tsx               ← Factory function that builds route tree
+```
+
+## Layer Responsibilities
+
+| Layer | Responsibility | Can Import From |
+|---|---|---|
+| `domain/` | Types and interfaces | Nothing (pure types) |
+| `infrastructure/api/` | HTTP requests, response adaptation | `domain/`, `core/httpClient` |
+| `infrastructure/stacks/` | TanStack Query cache | `infrastructure/api/`, `domain/` |
+| `infrastructure/store/` | Global state | `domain/` |
+| `application/` | Orchestration of stacks, store, and api | All `infrastructure/` layers |
+| `hooks/` (in page) | UI state, forms, service calls | `application/`, `shared/hooks/` |
+| `View` (TSX) | Rendering, user interaction | `hooks/`, `shared/components/` |
+
+<Warning>
+  Dependencies always point **inward** (toward the domain), never outward. The View doesn't know about the API. The API doesn't know about the Store. The Store doesn't know about the View.
+</Warning>
+
+## Feature Examples
+
+The boilerplate includes these feature modules:
+
+### Landing
+
+Public-facing pages with no authentication required.
+
+```
+features/landing/
+├── layout/layout.tsx           ← Public navigation layout
+├── home/
+├── about/
+├── contact/
+├── product/
+│   └── product.tsx
+├── loaders/                    ← TanStack Router loaders for data prefetching
+└── router/
+```
+
+Source: `~/workspace/source/src/features/landing/layout/layout.tsx:1`
+
+### Auth
+
+Authentication flows (login, register). Uses `authGuard` to redirect authenticated users away.
+
+```
+features/auth/
+├── layout/authLayout.tsx       ← Minimal auth layout
+├── login/
+├── register/
+└── router/
+```
+
+Source: `~/workspace/source/src/features/auth/layout/authLayout.tsx:1`
+
+### Backoffice
+
+Protected admin area. Uses `backofficeGuard` to require authentication. Can contain nested sub-features.
+
+```
+features/backoffice/
+├── layout/backofficeLayout.tsx ← Navigation, logout button
+├── dashboard/
+├── users/
+├── admin/                      ← Nested sub-feature
+│   ├── layout/
+│   ├── users/
+│   ├── roles/
+│   ├── permissions/
+│   └── router/
+└── router/
+```
+
+Source: `~/workspace/source/src/features/backoffice/layout/backofficeLayout.tsx:1`
+
+## Feature Isolation
+
+Features are composed at the router level without knowing about each other:
+
+```tsx
+// core/router/tankStackRouter.tsx
+const routeTree = rootRoute.addChildren([
+  landingRouter(rootRoute),
+  authRouter(rootRoute),
+  backofficeRouter(rootRoute),
+])
+```
+
+Each feature exports a **factory function** (Builder pattern) that receives the parent route and returns its configured route tree:
+
+```tsx
+// features/landing/router/router.tsx
+export const landingRouter = (parentRoute: AnyRoute) => {
+  const landingLayoutRoute = createRoute({
+    getParentRoute: () => parentRoute,
+    id: 'landing',
+    component: LandingLayout,
+    errorComponent: Error404,
+    notFoundComponent: createNotFoundRedirect(ROUTES.landing.home.fullPath),
+  })
+
+  const childRoutes = routes.map((route) => {
+    // Create child routes...
+  })
+
+  return landingLayoutRoute.addChildren(childRoutes)
+}
+```
+
+Source: `~/workspace/source/src/features/landing/router/router.tsx:11`
+
+## When to Split Features
+
+Create a new feature module when:
+
+- The code represents a distinct business domain
+- It needs its own layout or navigation structure
+- It has different authentication requirements
+- It could theoretically be deployed separately
+
+**Don't** create a feature for:
+
+- A single page that fits naturally into an existing feature
+- Shared UI components (put in `shared/components/`)
+- Shared utilities (put in `shared/utils/`)
+- Cross-feature hooks (put in `shared/hooks/`)
+
+## Adding a New Feature
+
+1. Create the feature directory structure
+2. Implement the layout component
+3. Create route definitions in `router/routes.ts`
+4. Build the router factory in `router/router.tsx`
+5. Add the router to `core/router/tankStackRouter.tsx`
+6. (Optional) Add guards to `beforeLoad` if authentication is needed
+
+<CodeGroup>
+```tsx features/myfeature/router/router.tsx
+import { createRoute } from '@tanstack/react-router'
+import type { AnyRoute } from '@tanstack/react-router'
+import { MyFeatureLayout } from '../layout/myFeatureLayout'
+import { Error404 } from '../../error404/error404'
+import { routes } from './routes'
+
+export const myFeatureRouter = (parentRoute: AnyRoute) => {
+  const layoutRoute = createRoute({
+    getParentRoute: () => parentRoute,
+    id: 'myfeature',
+    component: MyFeatureLayout,
+    errorComponent: Error404,
+  })
+
+  const childRoutes = routes.map(({ path, component }) => 
+    createRoute({
+      getParentRoute: () => layoutRoute,
+      path,
+      component,
+      errorComponent: Error404,
+    })
+  )
+
+  return layoutRoute.addChildren(childRoutes)
+}
+```
+
+```tsx core/router/tankStackRouter.tsx
+import { myFeatureRouter } from '../../features/myfeature/router/router'
+
+const routeTree = rootRoute.addChildren([
+  landingRouter(rootRoute),
+  authRouter(rootRoute),
+  backofficeRouter(rootRoute),
+  myFeatureRouter(rootRoute), // Add your feature
+])
+```
+</CodeGroup>
+
+## Next Steps
+
+- Learn about [Layout Components](/features/layouts) for creating feature-specific layouts
+- Understand [Route Guards](/features/guards) for protecting routes
+- See [Error Handling](/features/error-handling) for managing errors and 404s

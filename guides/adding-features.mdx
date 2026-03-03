@@ -1,0 +1,565 @@
+---
+title: Adding Features
+description: Complete workflow for creating new feature modules with proper architecture
+---
+
+# Adding Features
+
+This guide shows you how to add a complete feature module following the boilerplate's architectural patterns.
+
+## Feature Module Structure
+
+A feature is a **self-contained business domain module** with its own:
+
+- Domain types and interfaces
+- API calls and data fetching
+- State management (store and cache)
+- Routes and pages
+- Layouts (optional)
+
+```
+features/<feature-name>/
+├── domain/                      # Business types
+│   ├── <Entity>.types.ts        # Core domain interfaces
+│   ├── <Entity>.request.ts      # API request types
+│   └── <Entity>.response.ts     # API response types
+│
+├── infrastructure/              # Data layer
+│   ├── api/
+│   │   └── <entity>.api.ts      # HTTP calls with adapters
+│   ├── stacks/
+│   │   └── <entity>.stack.ts    # TanStack Query cache
+│   └── store/
+│       └── <entity>.store.ts    # Zustand global state
+│
+├── application/                 # Orchestration layer
+│   └── <entity>.service.ts      # Business logic
+│
+├── layout/                      # Feature layout
+│   └── layout.tsx
+│
+├── <page>/                      # Page modules
+│   ├── <page>.tsx
+│   └── hooks/
+│       └── use<Page>.ts
+│
+└── router/                      # Routing configuration
+    ├── metadata.ts
+    ├── routes.ts
+    └── router.tsx
+```
+
+<Tip>
+Not every feature needs all layers. Start simple and add infrastructure only when you need shared state or API integration.
+</Tip>
+
+## Complete Workflow: Adding a Blog Feature
+
+Let's walk through creating a complete blog feature with articles, API integration, and caching.
+
+<Steps>
+
+### Create the feature directory structure
+
+```bash
+mkdir -p src/features/blog/{domain,infrastructure/{api,stacks,store},application,layout,articles,router,loaders}
+```
+
+### Define domain types
+
+Create domain interfaces that represent your business entities:
+
+```ts features/blog/domain/Article.types.ts
+export interface Article {
+  id: string
+  title: string
+  content: string
+  author: string
+  publishedAt: Date
+  tags: string[]
+}
+
+export interface ArticleFilters {
+  tag?: string
+  author?: string
+  search?: string
+}
+```
+
+```ts features/blog/domain/Article.response.ts
+// API response format (might differ from domain)
+export interface ArticleApiResponse {
+  article_id: string
+  article_title: string
+  article_content: string
+  author_name: string
+  published_date: string
+  tag_list: string[]
+}
+```
+
+```ts features/blog/domain/Article.request.ts
+export interface CreateArticleRequest {
+  title: string
+  content: string
+  tags: string[]
+}
+
+export interface UpdateArticleRequest extends Partial<CreateArticleRequest> {
+  id: string
+}
+```
+
+### Create the API layer with adapters
+
+Implement HTTP calls and adapt responses to domain types:
+
+```ts features/blog/infrastructure/api/article.api.ts
+import { httpClient } from '../../../../core/api/httpClient'
+import type { Article } from '../../domain/Article.types'
+import type { ArticleApiResponse } from '../../domain/Article.response'
+import type { CreateArticleRequest } from '../../domain/Article.request'
+
+// Adapter: API response → Domain type
+const toArticle = (raw: ArticleApiResponse): Article => ({
+  id: raw.article_id,
+  title: raw.article_title,
+  content: raw.article_content,
+  author: raw.author_name,
+  publishedAt: new Date(raw.published_date),
+  tags: raw.tag_list,
+})
+
+export const fetchArticles = async (): Promise<Article[]> => {
+  const { data } = await httpClient.get<ArticleApiResponse[]>('/articles')
+  return data.map(toArticle)
+}
+
+export const fetchArticle = async (id: string): Promise<Article> => {
+  const { data } = await httpClient.get<ArticleApiResponse>(`/articles/${id}`)
+  return toArticle(data)
+}
+
+export const createArticle = async (article: CreateArticleRequest): Promise<Article> => {
+  const { data } = await httpClient.post<ArticleApiResponse>('/articles', article)
+  return toArticle(data)
+}
+```
+
+<Note>
+**The Adapter pattern** isolates your domain from API changes. If the API changes field names, you only update the adapter function.
+</Note>
+
+### Add TanStack Query cache layer
+
+Create query keys and cache configuration:
+
+```ts features/blog/infrastructure/stacks/article.stack.ts
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { fetchArticles, fetchArticle, createArticle } from '../api/article.api'
+import type { CreateArticleRequest } from '../../domain/Article.request'
+
+// Centralized query keys
+export const articleKeys = {
+  all: ['articles'] as const,
+  lists: () => [...articleKeys.all, 'list'] as const,
+  list: (filters: string) => [...articleKeys.lists(), filters] as const,
+  details: () => [...articleKeys.all, 'detail'] as const,
+  detail: (id: string) => [...articleKeys.details(), id] as const,
+}
+
+// Queries
+export const useArticles = () => {
+  return useQuery({
+    queryKey: articleKeys.lists(),
+    queryFn: fetchArticles,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+}
+
+export const useArticle = (id: string) => {
+  return useQuery({
+    queryKey: articleKeys.detail(id),
+    queryFn: () => fetchArticle(id),
+    enabled: !!id,
+  })
+}
+
+// Mutations
+export const useCreateArticle = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: createArticle,
+    onSuccess: () => {
+      // Invalidate and refetch articles list
+      queryClient.invalidateQueries({ queryKey: articleKeys.lists() })
+    },
+  })
+}
+```
+
+### Create global store (if needed)
+
+Only add a store if data needs to be shared across disconnected components:
+
+```ts features/blog/infrastructure/store/article.store.ts
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+import type { Article } from '../../domain/Article.types'
+
+interface ArticleStore {
+  selectedArticle: Article | null
+  setSelectedArticle: (article: Article | null) => void
+  recentlyViewed: Article[]
+  addRecentlyViewed: (article: Article) => void
+}
+
+export const useArticleStore = create<ArticleStore>()(persist(
+  (set) => ({
+    selectedArticle: null,
+    setSelectedArticle: (article) => set({ selectedArticle: article }),
+    recentlyViewed: [],
+    addRecentlyViewed: (article) => set((state) => ({
+      recentlyViewed: [
+        article,
+        ...state.recentlyViewed.filter(a => a.id !== article.id)
+      ].slice(0, 10)
+    })),
+  }),
+  { name: 'article-store' }
+))
+```
+
+<Warning>
+**Store philosophy**: Only use the store for data that must be shared between unrelated components. For parent-child communication, use props. For local UI state, use `useState`.
+</Warning>
+
+### Create application service
+
+Orchestrate the data layer:
+
+```ts features/blog/application/article.service.ts
+import { useArticles, useArticle, useCreateArticle } from '../infrastructure/stacks/article.stack'
+import { useArticleStore } from '../infrastructure/store/article.store'
+import type { CreateArticleRequest } from '../domain/Article.request'
+
+// Service hooks that orchestrate stack + store
+export const useArticleService = () => {
+  const articlesQuery = useArticles()
+  const createMutation = useCreateArticle()
+  const { addRecentlyViewed, recentlyViewed } = useArticleStore()
+
+  const createArticle = async (data: CreateArticleRequest) => {
+    const article = await createMutation.mutateAsync(data)
+    // Store doesn't need update - the cache invalidation will trigger re-render
+    return article
+  }
+
+  return {
+    articles: articlesQuery.data ?? [],
+    isLoading: articlesQuery.isLoading,
+    createArticle,
+    recentlyViewed,
+    addRecentlyViewed,
+  }
+}
+
+export const useArticleDetailService = (id: string) => {
+  const articleQuery = useArticle(id)
+  const { setSelectedArticle, addRecentlyViewed } = useArticleStore()
+
+  // Update store when article is loaded
+  if (articleQuery.data && !articleQuery.isLoading) {
+    setSelectedArticle(articleQuery.data)
+    addRecentlyViewed(articleQuery.data)
+  }
+
+  return {
+    article: articleQuery.data,
+    isLoading: articleQuery.isLoading,
+    error: articleQuery.error,
+  }
+}
+```
+
+### Create page components
+
+```tsx features/blog/articles/articles.tsx
+import type { FC } from 'react'
+import { useArticleHook } from './hooks/useArticleHook'
+
+interface ArticlesProps {
+  metaData: { title: string }
+}
+
+export const Articles: FC<ArticlesProps> = ({ metaData }) => {
+  const { articles, isLoading, handleCreateArticle } = useArticleHook()
+
+  if (isLoading) return <div>Loading articles...</div>
+
+  return (
+    <div>
+      <h1>{metaData.title}</h1>
+      {articles.map(article => (
+        <article key={article.id}>
+          <h2>{article.title}</h2>
+          <p>{article.author}</p>
+        </article>
+      ))}
+    </div>
+  )
+}
+```
+
+```ts features/blog/articles/hooks/useArticleHook.ts
+import { useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
+import { useArticleService } from '../../application/article.service'
+import { ROUTES } from '../../../../shared/constants/routes'
+
+export const useArticleHook = () => {
+  const navigate = useNavigate()
+  const { articles, isLoading, createArticle } = useArticleService()
+  const [isCreating, setIsCreating] = useState(false)
+
+  const handleCreateArticle = async (title: string, content: string) => {
+    setIsCreating(true)
+    try {
+      const article = await createArticle({ title, content, tags: [] })
+      navigate({ to: ROUTES.blog.article.to(article.id) })
+    } finally {
+      setIsCreating(false)
+    }
+  }
+
+  return {
+    articles,
+    isLoading,
+    isCreating,
+    handleCreateArticle,
+  }
+}
+```
+
+### Add routes and metadata
+
+```ts features/blog/router/metadata.ts
+export const blogMetaData = () => {
+  return {
+    articles: {
+      title: 'Blog Articles',
+    },
+    article: {
+      title: 'Article Detail',
+    },
+  }
+}
+```
+
+```ts features/blog/router/routes.ts
+import { lazy } from 'react'
+import { blogMetaData } from './metadata'
+import { ROUTES } from '../../../shared/constants/routes'
+
+const Articles = lazy(() => import('../articles/articles').then(m => ({ default: m.Articles })))
+const ArticleDetail = lazy(() => import('../article/article').then(m => ({ default: m.ArticleDetail })))
+
+const { blog } = ROUTES
+const { articles, article } = blogMetaData()
+
+export const routes = [
+  {
+    path: blog.articles.path,
+    component: Articles,
+    metaData: articles,
+  },
+  {
+    path: blog.article.path,
+    component: ArticleDetail,
+    metaData: article,
+  },
+] as const
+```
+
+### Create the router factory
+
+```tsx features/blog/router/router.tsx
+import React, { Suspense } from 'react'
+import { createRoute } from '@tanstack/react-router'
+import type { AnyRoute } from '@tanstack/react-router'
+import { BlogLayout } from '../layout/layout'
+import { Error404 } from '../../error404/error404'
+import { routes } from './routes'
+
+export const blogRouter = (parentRoute: AnyRoute) => {
+  const blogLayoutRoute = createRoute({
+    getParentRoute: () => parentRoute,
+    id: 'blog',
+    component: BlogLayout,
+    errorComponent: Error404,
+  })
+
+  const childRoutes = routes.map((route) => {
+    const { path, metaData } = route
+    const Component = route.component as React.ComponentType<any>
+
+    return createRoute({
+      getParentRoute: () => blogLayoutRoute,
+      path: path,
+      component: () => (
+        <Suspense fallback={<div>Loading…</div>}>
+          <Component metaData={metaData} />
+        </Suspense>
+      ),
+      errorComponent: Error404,
+    })
+  })
+
+  return blogLayoutRoute.addChildren(childRoutes)
+}
+```
+
+### Register feature in main router
+
+Add the blog router to the main router composition:
+
+```tsx core/router/tankStackRouter.tsx
+import { blogRouter } from '../../features/blog/router/router'
+
+const routeTree = rootRoute.addChildren([
+  landingRouter(rootRoute),
+  authRouter(rootRoute),
+  backofficeRouter(rootRoute),
+  blogRouter(rootRoute), // Add your feature
+])
+```
+
+### Add route constants
+
+Don't forget to add route constants to `~/shared/constants/routes.ts`:
+
+```ts shared/constants/routes.ts
+const BLOG_ROUTES = {
+  articles: {
+    path: '/blog',
+    fullPath: '/blog',
+    name: 'Articles',
+  },
+  article: {
+    path: '/blog/$id',
+    fullPath: '/blog/$id',
+    name: 'Article',
+    to: (id: string) => `/blog/${id}`,
+  },
+} as const satisfies Record<string, AppRoute>
+
+export const ROUTES = {
+  landing: LANDING_ROUTES,
+  auth: AUTH_ROUTES,
+  backoffice: BACKOFFICE_ROUTES,
+  admin: ADMIN_ROUTES,
+  blog: BLOG_ROUTES, // Add here
+} as const
+```
+
+</Steps>
+
+## Simplified Features (No API Integration)
+
+Not every feature needs the full infrastructure. For simple features:
+
+**Skip these layers**:
+- `domain/` (unless you have complex types)
+- `infrastructure/` (no API, no cache, no store)
+- `application/` (no service needed)
+
+**Keep only**:
+- `router/` (routes, metadata, factory)
+- Page components with local state
+- `layout/` (if needed)
+
+```
+features/about/
+├── about/
+│   └── about.tsx          # Component with local state
+└── router/
+    ├── metadata.ts
+    ├── routes.ts
+    └── router.tsx
+```
+
+## Data Flow Patterns
+
+### Complete Path (with cache and store)
+
+```
+View → Hook → Service → Stack (cache) → API → Adapter → Store
+                          ↓
+                     Updates view
+```
+
+Use when: Data is shared across multiple components or needs persistence.
+
+### Direct Path (no store)
+
+```
+View → Hook → Stack (cache) → API → Adapter
+                ↓
+          Updates view
+```
+
+Use when: Data is only used in one component tree.
+
+### Simple Path (no infrastructure)
+
+```
+View → useState/useReducer → Local state only
+```
+
+Use when: Data doesn't come from API or need sharing.
+
+<Tip>
+**Start simple!** Begin with the simple path and add layers only when you need them. Don't over-engineer from the start.
+</Tip>
+
+## Feature Independence Rules
+
+<Warning>
+**Critical**: Features must NEVER import from each other directly.
+</Warning>
+
+**❌ Wrong**:
+```ts
+// In features/blog/
+import { useAuth } from '../../auth/hooks/useAuth' // NO!
+```
+
+**✓ Correct**:
+```ts
+// Move shared code to shared/
+import { useAuth } from '../../../shared/hooks/useAuth' // YES!
+```
+
+**For navigation between features**:
+```ts
+import { ROUTES } from '../../../shared/constants/routes'
+navigate({ to: ROUTES.auth.login.fullPath }) // Type-safe!
+```
+
+## Best Practices
+
+<Tip>
+1. **One feature, one domain** - Keep features focused on a single business concern
+2. **Dependencies point inward** - View → Hook → Service → Infrastructure
+3. **Adapters at the boundary** - Transform API responses to domain types
+4. **Lazy load everything** - Use `lazy()` for all components except critical paths
+5. **Services don't always return** - If store/cache notifies subscribers, no need to return
+6. **Store for sharing only** - Use props for parent-child, store for distant components
+</Tip>
+
+## Next Steps
+
+- Learn about [State Management](/guides/state-management) philosophy
+- Understand [Data Fetching](/guides/data-fetching) with loaders and queries
+- See [Creating Routes](/guides/creating-routes) for routing details

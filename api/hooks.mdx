@@ -1,0 +1,309 @@
+---
+title: Shared Hooks
+description: Reusable React hooks for authentication and storage management
+---
+
+## useCheckAuthenticated
+
+React hook that checks if the current user is authenticated by reading from localStorage.
+
+### Function Signature
+
+```typescript
+export const useCheckAuthenticated = (): boolean
+```
+
+### Return Value
+
+<ResponseField name="return" type="boolean">
+  Returns `true` if the user is authenticated, `false` otherwise
+</ResponseField>
+
+### Usage
+
+```typescript
+import { useCheckAuthenticated } from '@/shared/hooks/useCheckAuthenticated'
+
+function ProfileButton() {
+  const isAuthenticated = useCheckAuthenticated()
+  
+  if (!isAuthenticated) {
+    return <LoginButton />
+  }
+  
+  return <UserMenu />
+}
+```
+
+### Implementation Details
+
+Source: `~/workspace/source/src/shared/hooks/useCheckAuthenticated.ts:4`
+
+The hook uses the `useStorage` hook to read the authentication state from localStorage:
+
+```typescript
+export const useCheckAuthenticated = (): boolean => {
+  const { auth } = keyStorage()
+  const { getStorage } = useStorage()
+  
+  return getStorage(auth)?.auth === 'true'
+}
+```
+
+---
+
+## checkAuthenticated
+
+Non-hook function that checks authentication state. Use this in guards and other non-React contexts.
+
+### Function Signature
+
+```typescript
+export const checkAuthenticated = (): boolean
+```
+
+### Return Value
+
+<ResponseField name="return" type="boolean">
+  Returns `true` if the user is authenticated, `false` otherwise
+</ResponseField>
+
+### Usage
+
+```typescript
+import { checkAuthenticated } from '@/shared/hooks/useCheckAuthenticated'
+import { redirect } from '@tanstack/react-router'
+import { ROUTES } from '@/shared/constants/routes'
+
+export const myCustomGuard = () => {
+  const isAuth = checkAuthenticated()
+  
+  if (!isAuth) {
+    throw redirect({ to: ROUTES.auth.login.fullPath })
+  }
+}
+```
+
+### Implementation Details
+
+Source: `~/workspace/source/src/shared/hooks/useCheckAuthenticated.ts:13`
+
+Directly accesses localStorage and includes error handling:
+
+```typescript
+export const checkAuthenticated = (): boolean => {
+  try {
+    const { auth } = keyStorage()
+    const raw = localStorage.getItem(auth)
+    
+    if (!raw) return false
+    
+    return (JSON.parse(raw)?.auth as string) === 'true'
+  } catch {
+    return false
+  }
+}
+```
+
+---
+
+## useStorage
+
+React hook providing a complete interface for managing localStorage with JSON serialization.
+
+### Function Signature
+
+```typescript
+export const useStorage = () => {
+  setStorage: (key: string, value: object) => boolean
+  getStorage: (key: string) => Record<string, string>
+  removeStorage: (key: string) => boolean
+  existStorage: (key: string) => boolean
+  removeAllStorage: () => boolean
+}
+```
+
+### Return Value
+
+Returns an object with five storage management functions:
+
+<ResponseField name="setStorage" type="(key: string, value: object) => boolean">
+  Stores an object in localStorage as JSON. Returns `true` on success, `false` on error.
+</ResponseField>
+
+<ResponseField name="getStorage" type="(key: string) => Record<string, string>">
+  Retrieves and parses a JSON object from localStorage. Returns empty object `{}` if key doesn't exist or on error.
+</ResponseField>
+
+<ResponseField name="removeStorage" type="(key: string) => boolean">
+  Removes an item from localStorage. Returns `true` on success, `false` on error.
+</ResponseField>
+
+<ResponseField name="existStorage" type="(key: string) => boolean">
+  Checks if a key exists in localStorage. Returns `true` if exists, `false` otherwise.
+</ResponseField>
+
+<ResponseField name="removeAllStorage" type="() => boolean">
+  Clears all items from localStorage. Returns `true` on success, `false` on error.
+</ResponseField>
+
+### Usage Examples
+
+#### Storing User Data
+
+```typescript
+import { useStorage } from '@/shared/hooks/useStorage'
+import { keyStorage } from '@/shared/utils/keyStorage'
+
+function LoginForm() {
+  const { setStorage } = useStorage()
+  const { auth } = keyStorage()
+  
+  const handleLogin = async (credentials) => {
+    const response = await loginAPI(credentials)
+    
+    if (response.success) {
+      setStorage(auth, { auth: 'true' })
+    }
+  }
+  
+  return <form onSubmit={handleLogin}>...</form>
+}
+```
+
+#### Reading User Preferences
+
+```typescript
+import { useStorage } from '@/shared/hooks/useStorage'
+import { keyStorage } from '@/shared/utils/keyStorage'
+
+function LanguageSelector() {
+  const { getStorage, setStorage } = useStorage()
+  const { lang } = keyStorage()
+  
+  const currentLang = getStorage(lang)?.language || 'en'
+  
+  const changeLanguage = (newLang: string) => {
+    setStorage(lang, { language: newLang })
+  }
+  
+  return (
+    <select value={currentLang} onChange={(e) => changeLanguage(e.target.value)}>
+      <option value="en">English</option>
+      <option value="es">Spanish</option>
+    </select>
+  )
+}
+```
+
+#### Checking Storage Existence
+
+```typescript
+import { useStorage } from '@/shared/hooks/useStorage'
+import { keyStorage } from '@/shared/utils/keyStorage'
+
+function WelcomeMessage() {
+  const { existStorage } = useStorage()
+  const { auth } = keyStorage()
+  
+  const hasSeenWelcome = existStorage('welcome_shown')
+  
+  if (hasSeenWelcome) {
+    return null
+  }
+  
+  return <WelcomeModal />
+}
+```
+
+#### Logout Implementation
+
+```typescript
+import { useStorage } from '@/shared/hooks/useStorage'
+import { keyStorage } from '@/shared/utils/keyStorage'
+import { useNavigate } from '@tanstack/react-router'
+import { ROUTES } from '@/shared/constants/routes'
+
+function LogoutButton() {
+  const { removeStorage } = useStorage()
+  const { auth } = keyStorage()
+  const navigate = useNavigate()
+  
+  const handleLogout = () => {
+    removeStorage(auth)
+    navigate({ to: ROUTES.auth.login.fullPath })
+  }
+  
+  return <button onClick={handleLogout}>Logout</button>
+}
+```
+
+#### Clear All Data
+
+```typescript
+import { useStorage } from '@/shared/hooks/useStorage'
+
+function ClearDataButton() {
+  const { removeAllStorage } = useStorage()
+  
+  const handleClearAll = () => {
+    if (confirm('Clear all local data?')) {
+      const success = removeAllStorage()
+      if (success) {
+        window.location.reload()
+      }
+    }
+  }
+  
+  return <button onClick={handleClearAll}>Clear All Data</button>
+}
+```
+
+### Implementation Details
+
+Source: `~/workspace/source/src/shared/hooks/useStorage.ts:3`
+
+All functions include try-catch error handling and log errors to the console:
+
+```typescript
+export const useStorage = () => {
+  const setStorage = (key: string, value: object): boolean => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value))
+      return true
+    } catch (error) {
+      console.error(error)
+      return false
+    }
+  }
+  
+  const getStorage = (key: string): Record<string, string> => {
+    try {
+      return JSON.parse(localStorage.getItem(key) ?? '{}')
+    } catch (error) {
+      console.error(error)
+      return {}
+    }
+  }
+  
+  // ... other methods
+  
+  return { setStorage, getStorage, removeStorage, existStorage, removeAllStorage }
+}
+```
+
+### Error Handling
+
+All functions gracefully handle errors:
+- `setStorage`, `removeStorage`, `removeAllStorage` return `false` on error
+- `getStorage` returns an empty object `{}` on error
+- `existStorage` returns `false` on error
+- All errors are logged to console for debugging
+
+---
+
+## Related APIs
+
+- [keyStorage](/api/helpers#keystorage) - Centralized storage key definitions
+- [authGuard](/api/guards#authguard) - Uses `checkAuthenticated` internally
+- [backofficeGuard](/api/guards#backofficeguard) - Uses `checkAuthenticated` internally

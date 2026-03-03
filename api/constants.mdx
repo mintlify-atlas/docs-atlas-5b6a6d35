@@ -1,0 +1,412 @@
+---
+title: Route Constants
+description: Centralized route definitions and navigation utilities
+---
+
+## Overview
+
+The ROUTES constant provides a type-safe, centralized way to manage all application routes. It includes path definitions for TanStack Router file-based routing and helper functions for dynamic routes.
+
+## AppRoute Interface
+
+Defines the structure of a route object.
+
+### Type Definition
+
+```typescript
+export interface AppRoute {
+  path: string        // Path segment for TanStack Router
+  fullPath: string    // Complete path for navigation
+  name: string        // Display name for the route
+  to?: (...args: string[]) => string  // Dynamic path builder
+}
+```
+
+### Fields
+
+<ParamField path="path" type="string" required>
+  The path segment used by TanStack Router. For nested routes, this may be relative (without leading `/`).
+</ParamField>
+
+<ParamField path="fullPath" type="string" required>
+  The complete path from root, always starting with `/`. Use this for navigation and redirects.
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  Human-readable name for the route. Useful for breadcrumbs, page titles, and navigation menus.
+</ParamField>
+
+<ParamField path="to" type="(...args: string[]) => string">
+  Optional function that builds dynamic paths. Used for routes with parameters like `/product/$id`.
+</ParamField>
+
+---
+
+## ROUTES
+
+Main route configuration object containing all application routes organized by section.
+
+### Structure
+
+```typescript
+export const ROUTES = {
+  landing: LANDING_ROUTES,
+  auth: AUTH_ROUTES,
+  backoffice: BACKOFFICE_ROUTES,
+  admin: ADMIN_ROUTES,
+} as const
+```
+
+### Landing Routes
+
+Public-facing routes accessible to all users.
+
+```typescript
+ROUTES.landing = {
+  home: {
+    path: '/home',
+    fullPath: '/home',
+    name: 'Home',
+  },
+  product: {
+    path: '/product/$id',
+    fullPath: '/product/$id',
+    name: 'Product',
+    to: (id: string) => `/product/${id}`,
+  },
+  contact: {
+    path: '/contact',
+    fullPath: '/contact',
+    name: 'Contact',
+  },
+  about: {
+    path: '/about',
+    fullPath: '/about',
+    name: 'About',
+  },
+}
+```
+
+### Auth Routes
+
+Authentication-related routes.
+
+```typescript
+ROUTES.auth = {
+  login: {
+    path: '/login',
+    fullPath: '/login',
+    name: 'Login',
+  },
+}
+```
+
+### Backoffice Routes
+
+Protected routes for authenticated users. The layout uses `/backoffice` as the base path, and children use relative paths.
+
+```typescript
+ROUTES.backoffice = {
+  backoffice: {
+    path: '/backoffice',
+    fullPath: '/backoffice',
+    name: 'Backoffice',
+  },
+  dashboard: {
+    path: 'dashboard',              // Relative path
+    fullPath: '/backoffice/dashboard',
+    name: 'Dashboard',
+  },
+  users: {
+    path: 'users',
+    fullPath: '/backoffice/users',
+    name: 'Users',
+  },
+}
+```
+
+### Admin Routes
+
+Nested admin section within backoffice (`/backoffice/admin`). The admin layout uses a relative path.
+
+```typescript
+ROUTES.admin = {
+  root: {
+    path: 'admin',                    // Relative to /backoffice
+    fullPath: '/backoffice/admin',
+    name: 'Admin',
+  },
+  users: {
+    path: 'users',                    // Relative to /backoffice/admin
+    fullPath: '/backoffice/admin/users',
+    name: 'Admin Users',
+  },
+  roles: {
+    path: 'roles',
+    fullPath: '/backoffice/admin/roles',
+    name: 'Roles',
+  },
+  permissions: {
+    path: 'permissions',
+    fullPath: '/backoffice/admin/permissions',
+    name: 'Permissions',
+  },
+}
+```
+
+---
+
+## Route Lists
+
+Pre-defined arrays of routes for iteration and menu generation.
+
+### Available Lists
+
+```typescript
+export const landingRouteList: AppRoute[]
+export const authRouteList: AppRoute[]
+export const backofficeRouteList: AppRoute[]
+export const adminRouteList: AppRoute[]
+export const allRouteList: AppRoute[]
+```
+
+### Implementation
+
+Source: `~/workspace/source/src/shared/constants/routes.ts:94`
+
+```typescript
+export const landingRouteList = Object.values(LANDING_ROUTES)
+export const authRouteList = Object.values(AUTH_ROUTES)
+
+// Excludes 'root' from navigable children
+export const backofficeRouteList = [
+  BACKOFFICE_ROUTES.dashboard,
+  BACKOFFICE_ROUTES.users
+]
+
+// Excludes 'root' from navigable children
+export const adminRouteList = [
+  ADMIN_ROUTES.users,
+  ADMIN_ROUTES.roles,
+  ADMIN_ROUTES.permissions
+]
+
+export const allRouteList: AppRoute[] = [
+  ...landingRouteList,
+  ...authRouteList,
+  ...backofficeRouteList,
+  ...adminRouteList,
+]
+```
+
+---
+
+## Usage Examples
+
+### Static Route Navigation
+
+Navigate to routes without parameters:
+
+```typescript
+import { useNavigate } from '@tanstack/react-router'
+import { ROUTES } from '@/shared/constants/routes'
+
+function NavigationButton() {
+  const navigate = useNavigate()
+  
+  const goToDashboard = () => {
+    navigate({ to: ROUTES.backoffice.dashboard.fullPath })
+  }
+  
+  return <button onClick={goToDashboard}>Go to Dashboard</button>
+}
+```
+
+### Dynamic Route Navigation
+
+Navigate to routes with parameters:
+
+```typescript
+import { useNavigate } from '@tanstack/react-router'
+import { ROUTES } from '@/shared/constants/routes'
+
+function ProductCard({ productId }: { productId: string }) {
+  const navigate = useNavigate()
+  
+  const viewProduct = () => {
+    navigate({ to: ROUTES.landing.product.to(productId) })
+  }
+  
+  return <button onClick={viewProduct}>View Product</button>
+}
+```
+
+### Using Link Component
+
+Create navigation links:
+
+```typescript
+import { Link } from '@tanstack/react-router'
+import { ROUTES } from '@/shared/constants/routes'
+
+function Navigation() {
+  return (
+    <nav>
+      <Link to={ROUTES.landing.home.fullPath}>Home</Link>
+      <Link to={ROUTES.landing.contact.fullPath}>Contact</Link>
+      <Link to={ROUTES.landing.about.fullPath}>About</Link>
+    </nav>
+  )
+}
+```
+
+### Dynamic Links with Parameters
+
+```typescript
+import { Link } from '@tanstack/react-router'
+import { ROUTES } from '@/shared/constants/routes'
+
+function ProductList({ products }) {
+  return (
+    <ul>
+      {products.map(product => (
+        <li key={product.id}>
+          <Link to={ROUTES.landing.product.to(product.id)}>
+            {product.name}
+          </Link>
+        </li>
+      ))}
+    </ul>
+  )
+}
+```
+
+### Generating Navigation Menus
+
+Use route lists to build dynamic menus:
+
+```typescript
+import { Link } from '@tanstack/react-router'
+import { backofficeRouteList } from '@/shared/constants/routes'
+
+function BackofficeMenu() {
+  return (
+    <nav>
+      <ul>
+        {backofficeRouteList.map(route => (
+          <li key={route.fullPath}>
+            <Link to={route.fullPath}>{route.name}</Link>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
+```
+
+### Breadcrumb Generation
+
+```typescript
+import { Link } from '@tanstack/react-router'
+import { allRouteList } from '@/shared/constants/routes'
+
+function Breadcrumbs({ currentPath }: { currentPath: string }) {
+  const currentRoute = allRouteList.find(r => r.fullPath === currentPath)
+  
+  if (!currentRoute) return null
+  
+  return (
+    <div>
+      <Link to="/">Home</Link> / 
+      <span>{currentRoute.name}</span>
+    </div>
+  )
+}
+```
+
+### Route Guards
+
+Use route constants in guards:
+
+```typescript
+import { redirect } from '@tanstack/react-router'
+import { checkAuthenticated } from '@/shared/hooks/useCheckAuthenticated'
+import { ROUTES } from '@/shared/constants/routes'
+
+export const authGuard = () => {
+  const isAuth = checkAuthenticated()
+  
+  if (isAuth) {
+    throw redirect({ to: ROUTES.backoffice.dashboard.fullPath })
+  }
+}
+
+export const backofficeGuard = () => {
+  const isAuth = checkAuthenticated()
+  
+  if (!isAuth) {
+    throw redirect({ to: ROUTES.auth.login.fullPath })
+  }
+}
+```
+
+### Creating File Routes
+
+Use the `path` property when defining file routes:
+
+```typescript
+// File: src/routes/backoffice.dashboard.tsx
+import { createFileRoute } from '@tanstack/react-router'
+import { ROUTES } from '@/shared/constants/routes'
+import DashboardPage from '@/pages/backoffice/DashboardPage'
+
+export const Route = createFileRoute(
+  ROUTES.backoffice.dashboard.path  // Uses 'dashboard' (relative path)
+)({
+  component: DashboardPage,
+})
+```
+
+---
+
+## Path vs FullPath
+
+Understanding the difference is crucial for TanStack Router:
+
+### Use `path` for:
+- Creating file routes with `createFileRoute`
+- Defining route segments in route configuration
+
+### Use `fullPath` for:
+- Navigation with `navigate()`
+- Creating links with `<Link />`
+- Redirects in guards
+- Route matching and comparison
+
+### Example
+
+```typescript
+// Route definition - use 'path'
+export const Route = createFileRoute(ROUTES.backoffice.dashboard.path)({
+  component: DashboardPage,
+})
+
+// Navigation - use 'fullPath'
+function NavigateButton() {
+  const navigate = useNavigate()
+  
+  return (
+    <button onClick={() => navigate({ to: ROUTES.backoffice.dashboard.fullPath })}>
+      Go to Dashboard
+    </button>
+  )
+}
+```
+
+---
+
+## Related APIs
+
+- [authGuard](/api/guards#authguard) - Uses ROUTES for redirects
+- [backofficeGuard](/api/guards#backofficeguard) - Uses ROUTES for redirects
+- [createNotFoundRedirect](/api/helpers#createnotfoundredirect) - Uses route paths for 404 handling
