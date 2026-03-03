@@ -149,7 +149,198 @@ const indexRedirectRoute = createRoute({
 import type { AnyRoute } from '@tanstack/react-router'
 ```
 
+---
+
+## Feature Router Factories
+
+The application uses factory functions to create modular router configurations for each feature. These functions follow the Builder pattern.
+
+### landingRouter
+
+Creates the router configuration for public landing pages.
+
+#### Signature
+
+```tsx
+export const landingRouter = (parentRoute: AnyRoute) => AnyRoute
+```
+
+#### Parameters
+
+<ParamField path="parentRoute" type="AnyRoute" required>
+  The parent route instance (typically the root route)
+</ParamField>
+
+#### Usage
+
+```tsx
+import { landingRouter } from '@/features/landing/router/router'
+
+const routeTree = rootRoute.addChildren([
+  landingRouter(rootRoute),
+  // other routes...
+])
+```
+
+#### Features
+
+- Creates a layout route with ID `'landing'`
+- Includes routes for: home, product, contact, about
+- Supports route loaders for data fetching
+- Redirects 404s to home page
+
+#### Source
+
+`~/workspace/source/src/features/landing/router/router.tsx`
+
+---
+
+### authRouter
+
+Creates the router configuration for authentication pages.
+
+#### Signature
+
+```tsx
+export const authRouter = (parentRoute: AnyRoute) => AnyRoute
+```
+
+#### Parameters
+
+<ParamField path="parentRoute" type="AnyRoute" required>
+  The parent route instance (typically the root route)
+</ParamField>
+
+#### Usage
+
+```tsx
+import { authRouter } from '@/features/auth/router/router'
+
+const routeTree = rootRoute.addChildren([
+  authRouter(rootRoute),
+  // other routes...
+])
+```
+
+#### Features
+
+- Creates a layout route with ID `'auth'`
+- Includes routes for: login, register
+- Protected by `authGuard` (redirects authenticated users)
+- Redirects 404s to login page
+
+#### Source
+
+`~/workspace/source/src/features/auth/router/router.tsx`
+
+---
+
+### backofficeRouter
+
+Creates the router configuration for the protected backoffice area.
+
+#### Signature
+
+```tsx
+export const backofficeRouter = (parentRoute: AnyRoute) => AnyRoute
+```
+
+#### Parameters
+
+<ParamField path="parentRoute" type="AnyRoute" required>
+  The parent route instance (typically the root route)
+</ParamField>
+
+#### Usage
+
+```tsx
+import { backofficeRouter } from '@/features/backoffice/router/router'
+
+const routeTree = rootRoute.addChildren([
+  backofficeRouter(rootRoute),
+  // other routes...
+])
+```
+
+#### Features
+
+- Creates a layout route at path `'/backoffice'`
+- Includes routes for: dashboard, users
+- Nests the admin section via `adminRouter`
+- Protected by `backofficeGuard` (requires authentication)
+- Redirects root path to dashboard
+- Redirects 404s to dashboard
+
+#### Nested Structure
+
+```
+/backoffice (backofficeRouter)
+  ├── /backoffice/dashboard
+  ├── /backoffice/users
+  └── /backoffice/admin (adminRouter)
+      ├── /backoffice/admin/users
+      ├── /backoffice/admin/roles
+      └── /backoffice/admin/permissions
+```
+
+#### Source
+
+`~/workspace/source/src/features/backoffice/router/router.tsx`
+
+---
+
+### adminRouter
+
+Creates the router configuration for the admin section nested within backoffice.
+
+#### Signature
+
+```tsx
+export const adminRouter = (parentRoute: AnyRoute) => AnyRoute
+```
+
+#### Parameters
+
+<ParamField path="parentRoute" type="AnyRoute" required>
+  The parent layout route (backofficeLayoutRoute, NOT rootRoute)
+</ParamField>
+
+#### Usage
+
+```tsx
+import { adminRouter } from '@/features/backoffice/admin/router/router'
+
+// Called from within backofficeRouter
+const backofficeLayoutRoute = createRoute({ ... })
+
+return backofficeLayoutRoute.addChildren([
+  // other routes...
+  adminRouter(backofficeLayoutRoute),
+])
+```
+
+#### Features
+
+- Creates a layout route at path `'admin'` (relative to backoffice)
+- Includes routes for: users, roles, permissions
+- Redirects root path to admin users page
+- Redirects 404s to admin users page
+
+#### Important
+
+Unlike other router factories, `adminRouter` receives `backofficeLayoutRoute` as its parent, not `rootRoute`. This creates proper nesting: `/backoffice/admin/*`.
+
+#### Source
+
+`~/workspace/source/src/features/backoffice/admin/router/router.tsx`
+
+---
+
 ## Source Files
 
 - `~/workspace/source/src/core/router/tankStackRouter.tsx`
 - `~/workspace/source/src/core/router/baseRedirectRouter.tsx`
+- `~/workspace/source/src/features/landing/router/router.tsx`
+- `~/workspace/source/src/features/auth/router/router.tsx`
+- `~/workspace/source/src/features/backoffice/router/router.tsx`
+- `~/workspace/source/src/features/backoffice/admin/router/router.tsx`
