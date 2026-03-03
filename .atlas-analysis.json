@@ -1,0 +1,91 @@
+{
+  "projectType": "frontend",
+  "projectName": "SPA Base React + TanStack Router",
+  "projectDescription": "Production-ready React SPA boilerplate with TanStack Router, featuring modular architecture and route-based code organization",
+  "theme": "palm",
+  "primaryColor": "#61dafb",
+  "lightColor": "#149eca",
+  "darkColor": "#087ea4",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart", "installation"]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "architecture/overview",
+              "architecture/file-structure",
+              "architecture/routing",
+              "architecture/data-flow"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/feature-modules",
+              "features/layouts",
+              "features/guards",
+              "features/error-handling"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/creating-routes",
+              "guides/adding-features",
+              "guides/state-management",
+              "guides/data-fetching"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core",
+            "pages": [
+              "api/router",
+              "api/providers"
+            ]
+          },
+          {
+            "group": "Shared",
+            "pages": [
+              "api/guards",
+              "api/hooks",
+              "api/constants",
+              "api/helpers"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Modular feature-based architecture",
+    "TanStack Router integration with guards",
+    "Flexible routing with hash history support",
+    "Layered data flow (domain, infrastructure, application)",
+    "Reusable shared components and hooks",
+    "Type-safe route definitions"
+  ],
+  "publicApiSurface": [
+    "TankStackRouter",
+    "Providers",
+    "authGuard",
+    "backofficeGuard",
+    "ROUTES",
+    "useCheckAuthenticated",
+    "useStorage",
+    "createNotFoundRedirect",
+    "authRouter()",
+    "landingRouter()",
+    "backofficeRouter()"
+  ]
+}
